@@ -254,6 +254,8 @@ fn services(originals: Originals, backend: Option<Backend>, files: Files, frozen
         pick_folder: None,
         // the browser reports prefers-color-scheme to egui
         system_theme: None,
+        // no tiles in the browser yet: the Map view draws its pins on a plain background
+        map_tiles: None,
     }
 }
 

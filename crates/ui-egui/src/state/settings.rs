@@ -193,6 +193,11 @@ pub struct AppSettings {
     /// gets a new one, or always merge (issue #2672; the window's "Don't ask again" picks that).
     #[serde(deserialize_with = "lenient")]
     pub lightroom_import: LightroomImport,
+    /// Settings ▸ Map: the tiles under the Map view's pins (`Ask` until chosen: none are loaded).
+    #[serde(deserialize_with = "lenient")]
+    pub map_tiles: crate::panels::map::MapTiles,
+    /// Settings ▸ Map: the tile cache's size limit (MB).
+    pub map_cache_mb: u32,
 }
 
 /// Where File ▸ Import Lightroom Catalog… puts a catalog (Settings ▸ General ▸ Library). Saved as
@@ -242,6 +247,8 @@ impl Default for AppSettings {
             zoom_to_focus: true,
             loupe_info: LoupeInfo::default(),
             lightroom_import: LightroomImport::Ask,
+            map_tiles: crate::panels::map::MapTiles::Ask,
+            map_cache_mb: crate::panels::map::DEFAULT_CACHE_MB,
         }
     }
 }

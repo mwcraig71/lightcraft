@@ -127,4 +127,7 @@ pub struct Services {
     pub restore_library: Option<HostAction>,
     /// The system appearance for Appearance Mode ▸ Auto, ahead of egui's own report.
     pub system_theme: Option<SystemThemeFn>,
+    /// Tiles for the Map view (desktop: a `lightcraft_tiles::pool::TilePool`). None: pins on a
+    /// plain background (the web build, tests that don't give a fake).
+    pub map_tiles: Option<std::sync::Arc<dyn lightcraft_tiles::TileProvider>>,
 }

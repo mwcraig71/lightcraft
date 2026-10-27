@@ -3546,6 +3546,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-sysmem",
  "lightcraft-testkit",
+ "lightcraft-tiles",
  "lightcraft-ui-egui",
  "log",
  "muda",
@@ -3590,6 +3591,7 @@ dependencies = [
  "lightcraft-merge",
  "lightcraft-raster",
  "lightcraft-sysmem",
+ "lightcraft-tiles",
  "lightcraft-ui-egui",
  "serde_json",
 ]
@@ -4002,6 +4004,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-slideshow",
  "lightcraft-testkit",
+ "lightcraft-tiles",
  "log",
  "serde",
  "serde_json",

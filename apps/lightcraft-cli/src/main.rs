@@ -823,6 +823,9 @@ fn snapshot(args: &[String]) -> Result<(), String> {
         png: Some(Box::new(|img: &lightcraft_raster::Rgba8| {
             lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(img), &lightcraft_codecs::EncodeMeta::default()).unwrap_or_default()
         })),
+        // Map view tiles, as in the app: none are fetched unless the script turns them on
+        // (`map.setTileSource`); cached in memory only
+        map_tiles: Some(std::sync::Arc::new(lightcraft_tiles::pool::TilePool::new(None, 0))),
         ..Default::default()
     };
     let mut app = lightcraft_ui_egui::LightcraftApp::new(session, services);

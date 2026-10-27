@@ -243,6 +243,12 @@ pub(crate) fn services(cc: &eframe::CreationContext<'_>, log_file: Option<&std::
         backup_library: None,
         restore_library: None,
         system_theme: appearance::service(),
+        // Map view tiles: fetched only once the user turns them on (Settings ▸ Map), cached in
+        // <settings>/tile-cache (none with LIGHTCRAFT_CONFIG_DIR="": memory only)
+        map_tiles: Some(std::sync::Arc::new(lightcraft_tiles::pool::TilePool::new(
+            lightcraft_engine::config::config_dir().map(|d| d.join("tile-cache")).as_deref(),
+            lightcraft_tiles::cache::DEFAULT_LIMIT,
+        ))),
     }
 }
 

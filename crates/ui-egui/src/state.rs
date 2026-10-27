@@ -45,6 +45,8 @@ pub struct UiState {
     #[serde(skip)]
     pub frame_rate: bool,
     pub view: ViewMode,
+    /// The Map view's centre, zoom and track line.
+    pub map: crate::panels::map::MapState,
     pub left_panel: bool,
     pub right: RightPanel,
     /// The right panel F8 (`view.rightPanel`) hid, which the next F8 shows again.
@@ -366,6 +368,7 @@ impl Default for UiState {
             frame_rate: std::env::var("LIGHTCRAFT_FPS").is_ok_and(|v| matches!(v.trim(), "1" | "on" | "true" | "yes")),
             luminance_map_restore: None,
             view: ViewMode::Detail,
+            map: Default::default(),
             left_panel: false,
             left_width: LEFT_WIDTH.default,
             right_width: RIGHT_WIDTH.default,

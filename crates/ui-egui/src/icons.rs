@@ -106,6 +106,8 @@ pub enum Icon {
     Sun,
     /// Appearance Mode ▸ Dark: a crescent moon.
     Moon,
+    /// View ▸ Map: a map pin (a teardrop with a hole).
+    MapPin,
 }
 
 struct Pen<'a> {
@@ -226,6 +228,13 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, color: Color32, turn: Option<
             // outer arc of the disc, then the inner arc of the bite, meeting at the horns
             pen.arc(10.0, 10.0, 6.5, 2.9, 263.8);
             pen.arc(13.4, 6.4, 5.0, 214.9, 51.8);
+        }
+        MapPin => {
+            // the round head, its sides running down to the point, the hole, and the ground
+            pen.arc(10.0, 7.5, 5.0, 150.0, 390.0);
+            pen.line(&[(5.67, 10.0), (10.0, 16.5), (14.33, 10.0)]);
+            pen.circle(10.0, 7.5, 1.8);
+            pen.line(&[(6.0, 18.0), (14.0, 18.0)]);
         }
         Search => {
             pen.circle(8.5, 8.5, 5.0);

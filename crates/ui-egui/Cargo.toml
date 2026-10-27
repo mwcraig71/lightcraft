@@ -23,6 +23,7 @@ web-time = { workspace = true }
 lightcraft-engine = { workspace = true }
 lightcraft-slideshow = { workspace = true }
 lightcraft-preview = { workspace = true }
+lightcraft-tiles = { workspace = true }
 egui = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

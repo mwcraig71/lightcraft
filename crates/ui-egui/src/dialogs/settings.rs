@@ -55,6 +55,7 @@ pub const TABS: &[(&str, &str)] = &[
     ("slideshow", "Slideshow"),
     ("faces", "Faces"),
     ("denoise", "AI Denoise"),
+    ("map", "Map"),
 ];
 
 /// Thumbnail cache sizes offered (MB).
@@ -73,6 +74,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &str) {
         "slideshow" => slideshow_tab(app, ui, &t, true),
         "faces" => crate::panels::faces::settings_tab(app, ui, &t),
         "denoise" => crate::panels::denoise::settings_tab(app, ui, &t),
+        "map" => crate::panels::map::settings_tab(app, ui, &t),
         _ => general_tab(app, ui, &t),
     }
 }

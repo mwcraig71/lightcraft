@@ -393,6 +393,7 @@ impl Headless {
     pub fn busy(&self) -> bool {
         self.app.renderer.in_flight() > 0
             || crate::panels::left::fs_cached_running(&self.view.ctx) > 0
+            || crate::panels::map::tiles_loading(&self.view.ctx)
             || self.app.merge.busy()
             || self.app.scan.is_some()
             || self.app.sync.is_some()
