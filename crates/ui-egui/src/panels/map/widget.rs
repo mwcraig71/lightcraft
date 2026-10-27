@@ -237,6 +237,22 @@ pub fn draw_attribution(ui: &egui::Ui, vp: &Viewport, text: &str) {
     crate::widgets::register_geometry(ui.ctx(), "map:attribution", r);
 }
 
+/// A view cone: `CONE_ANGLE` wide, `CONE_LEN` points long.
+const CONE: Color32 = Color32::from_rgb(255, 196, 64);
+const CONE_ANGLE: f32 = 60.0;
+const CONE_LEN: f32 = 38.0;
+
+/// The camera's field of view from `at`, pointing `degrees` clockwise from north (up).
+fn draw_cone(painter: &egui::Painter, at: Pos2, degrees: f32, color: Color32) {
+    let steps = 10;
+    let mut pts = vec![at];
+    for i in 0..=steps {
+        let a = (degrees - CONE_ANGLE / 2.0 + CONE_ANGLE * i as f32 / steps as f32).to_radians();
+        pts.push(at + vec2(a.sin(), -a.cos()) * CONE_LEN);
+    }
+    painter.add(egui::Shape::convex_polygon(pts, color.gamma_multiply(0.35), Stroke::new(1.2, color.gamma_multiply(0.9))));
+}
+
 /// Pin colours: ordinary, selected.
 const PIN: Color32 = Color32::from_rgb(226, 74, 51);
 const RING: Color32 = Color32::WHITE;
@@ -249,6 +265,21 @@ pub fn draw_pins(ui: &egui::Ui, vp: &Viewport, pins: &[Pin], clusters: &[Cluster
         let pts: Vec<Pos2> = pins.iter().map(|p| vp.screen_of(p.world)).collect();
         painter.add(egui::Shape::line(pts.clone(), Stroke::new(3.5, Color32::from_black_alpha(90))));
         painter.add(egui::Shape::line(pts, Stroke::new(1.8, Color32::from_rgb(255, 196, 64))));
+    }
+    // view cones under the pins: which way each single photo's camera pointed
+    for c in clusters {
+        if let [only] = c.members.as_slice()
+            && let Some(p) = pins.get(*only)
+            && let Some(d) = p.direction
+        {
+            let at = vp.screen_of(p.world);
+            draw_cone(&painter, at, d, if selected(p.id.0) { t.accent } else { CONE });
+            crate::widgets::register_geometry(
+                ui.ctx(),
+                format!("mapCone:{}", p.id.0),
+                Rect::from_center_size(at, vec2(2.0 * CONE_LEN, 2.0 * CONE_LEN)),
+            );
+        }
     }
     // highlighted last, so they sit on top
     let mut order: Vec<&Cluster> = clusters.iter().collect();

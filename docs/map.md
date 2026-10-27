@@ -15,9 +15,12 @@ a few hundred photos along one structure.
   until they separate; photos taken at one spot stay a cluster at the deepest zoom, and a click
   then selects them all.
 - **Hover** a pin for its thumbnail, file name and capture time.
-- **Heading:** a photo that recorded which way the camera pointed (phones, tablets and drones
-  usually do) gets a view cone. The hover card says "magnetic" when the heading is magnetic north,
-  not true north.
+- **Heading:** a photo that recorded which way the camera pointed gets a 60° view cone: phones and
+  tablets write `GPSImgDirection` (EXIF or XMP; true or magnetic north), DJI drones the gimbal's
+  yaw (`drone-dji:GimbalYawDegree`, read only, used when there is no `GPSImgDirection`). The hover
+  card gives the heading, "magnetic" when it is from magnetic north, and the altitude. Headings and
+  altitude are kept in the catalog, written to XMP sidecars and exported files; **Photo ▸ Reload
+  from Disk** reads them for photos imported before LightCraft kept them.
 - The status line counts the photos and those with a location. **"N without location"** selects
   the photos that have none.
 

@@ -17,6 +17,11 @@ pub struct Pin {
     /// ISO 8601 capture time (the import time when there is none); the sort key.
     pub captured: String,
     pub file_name: String,
+    /// Which way the camera pointed (degrees from north), and whether from magnetic north.
+    pub direction: Option<f32>,
+    pub magnetic: bool,
+    /// Metres above sea level.
+    pub altitude: Option<f64>,
 }
 
 /// The pins for the grid's current list.
@@ -44,9 +49,15 @@ pub fn collect(app: &mut LightcraftApp) -> Pins {
     for id in ids.iter() {
         let Some(p) = app.session.catalog.photo(*id) else { continue };
         match p.meta.gps.filter(|g| usable(*g)) {
-            Some((lat, lon)) => {
-                pins.push(Pin { id: *id, world: mercator::to_world(lat, lon), captured: p.date().to_string(), file_name: p.file_name.clone() })
-            }
+            Some((lat, lon)) => pins.push(Pin {
+                id: *id,
+                world: mercator::to_world(lat, lon),
+                captured: p.date().to_string(),
+                file_name: p.file_name.clone(),
+                direction: p.meta.gps_direction.filter(|d| d.is_finite()),
+                magnetic: p.meta.gps_direction_magnetic,
+                altitude: p.meta.gps_altitude.filter(|a| a.is_finite()),
+            }),
             None => without.push(*id),
         }
     }
@@ -113,7 +124,15 @@ mod tests {
     use super::*;
 
     fn pin(id: u64, lat: f64, lon: f64) -> Pin {
-        Pin { id: PhotoId(id), world: mercator::to_world(lat, lon), captured: format!("2024-05-01T10:00:{id:02}"), file_name: format!("{id}.jpg") }
+        Pin {
+            id: PhotoId(id),
+            world: mercator::to_world(lat, lon),
+            captured: format!("2024-05-01T10:00:{id:02}"),
+            file_name: format!("{id}.jpg"),
+            direction: None,
+            magnetic: false,
+            altitude: None,
+        }
     }
 
     #[test]

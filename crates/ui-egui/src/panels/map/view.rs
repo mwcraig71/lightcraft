@@ -289,9 +289,12 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
     let t = Tokens::get(ui.ctx());
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("lc-map-hover")));
     let Some(first) = c.members.first().and_then(|i| pins.pins.get(*i)) else { return };
-    let card_w = 200.0;
     let img_h = 132.0;
-    let size = vec2(card_w, img_h + 46.0);
+    let heading = (c.members.len() == 1).then(|| facts(first)).flatten();
+    // wide enough for the longest line (the heading and altitude), never narrower than 200
+    let widest = heading.as_ref().map_or(0.0, |h| painter.layout_no_wrap(h.clone(), t.font(11.0), t.text_dim).size().x);
+    let card_w = (widest + 16.0).clamp(200.0, 320.0);
+    let size = vec2(card_w, img_h + if heading.is_some() { 62.0 } else { 46.0 });
     let screen = ui.ctx().content_rect();
     let mut min = at + vec2(16.0, 16.0);
     if min.x + size.x > screen.right() {
@@ -313,5 +316,21 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
     painter.text(pos2(card.left() + 8.0, img.bottom() + 8.0), Align2::LEFT_TOP, name, t.semibold(11.5), t.text);
     let when = first.captured.replacen('T', " ", 1);
     painter.text(pos2(card.left() + 8.0, img.bottom() + 25.0), Align2::LEFT_TOP, when, t.font(11.0), t.text_dim);
+    if let Some(line) = heading {
+        painter.text(pos2(card.left() + 8.0, img.bottom() + 41.0), Align2::LEFT_TOP, line, t.font(11.0), t.text_dim);
+    }
     crate::widgets::register_geometry(ui.ctx(), "map:hover", card);
+}
+
+/// "Heading 355° (magnetic) · 67 m": the hover card's line about where the camera pointed from.
+fn facts(p: &pins::Pin) -> Option<String> {
+    let heading = p.direction.map(|d| {
+        let d = d.round() as i32 % 360;
+        if p.magnetic { tr_format!("Heading {d}° (magnetic)", d = d) } else { tr_format!("Heading {d}°", d = d) }
+    });
+    let altitude = p.altitude.map(|a| tr_format!("{m} m altitude", m = a.round() as i64));
+    match (heading, altitude) {
+        (Some(h), Some(a)) => Some(format!("{h} · {a}")),
+        (h, a) => h.or(a),
+    }
 }

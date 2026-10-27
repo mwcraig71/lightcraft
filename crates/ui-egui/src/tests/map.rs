@@ -209,3 +209,24 @@ fn ui_set_moves_the_map_without_fitting_it_again() {
     h.step();
     assert!(h.app.ui.map.zoom > 15.0);
 }
+
+#[test]
+fn photos_with_a_heading_get_a_view_cone() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    let ids = bridge(&mut h);
+    let mut meta = h.app.session.catalog.photo(ids[0]).unwrap().meta.clone();
+    meta.gps_direction = Some(90.0);
+    meta.gps_direction_magnetic = true;
+    h.app.session.commit("setup", Op::SetMeta { id: ids[0], meta: Box::new(meta) }).unwrap();
+    open_map(&mut h);
+    assert!(widget(&h, &format!("mapCone:{}", ids[0].0)).is_some());
+    assert!(widget(&h, &format!("mapCone:{}", ids[1].0)).is_none(), "no heading, no cone");
+    // the hover card says which way, and that it is magnetic
+    let pin = widget(&h, &format!("mapPin:{}", ids[0].0)).unwrap();
+    let r = h.request("ui.move", json!({"x": pin.center().x, "y": pin.center().y}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(h.painted_text().iter().any(|t| t.contains("Heading 90° (magnetic)")), "{:?}", h.painted_text());
+}
