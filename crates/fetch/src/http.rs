@@ -549,14 +549,13 @@ impl Response {
     }
 }
 
-/// Send `GET url` with extra `headers` and read the status line and headers.
-pub fn get(url: &Url, headers: &[(&str, String)], limits: &Limits) -> Result<Response, HttpError> {
-    let mut req = format!(
-        "GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: LightCraft/{}\r\nAccept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
-        url.path,
-        url.host_header(),
-        env!("CARGO_PKG_VERSION")
-    );
+/// The request head for `GET url`. A `User-Agent` in `headers` replaces the default `LightCraft/<version>`.
+fn request_head(url: &Url, headers: &[(&str, String)]) -> Result<String, HttpError> {
+    let mut req = format!("GET {} HTTP/1.1\r\nHost: {}\r\n", url.path, url.host_header());
+    if !headers.iter().any(|(k, _)| k.eq_ignore_ascii_case("user-agent")) {
+        req.push_str(&format!("User-Agent: LightCraft/{}\r\n", env!("CARGO_PKG_VERSION")));
+    }
+    req.push_str("Accept: */*\r\nAccept-Encoding: identity\r\nConnection: close\r\n");
     for (k, v) in headers {
         if v.chars().any(|c| c == '\r' || c == '\n') || k.chars().any(|c| c == '\r' || c == '\n' || c == ':') {
             return Err(HttpError::BadUrl("header with a line break".into()));
@@ -564,6 +563,13 @@ pub fn get(url: &Url, headers: &[(&str, String)], limits: &Limits) -> Result<Res
         req.push_str(&format!("{k}: {v}\r\n"));
     }
     req.push_str("\r\n");
+    Ok(req)
+}
+
+/// Send `GET url` with extra `headers` and read the status line and headers. A `User-Agent` in
+/// `headers` replaces the default one.
+pub fn get(url: &Url, headers: &[(&str, String)], limits: &Limits) -> Result<Response, HttpError> {
+    let req = request_head(url, headers)?;
     let mut stream = Stream::connect(url, limits)?;
     stream.write_all(req.as_bytes(), limits)?;
     let mut conn = Conn { stream, buf: Vec::new(), pos: 0 };
@@ -657,6 +663,18 @@ mod tests_connect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_caller_user_agent_replaces_the_default() {
+        let url = Url::parse("https://tiles.example/1/2/3.png").unwrap();
+        let head = request_head(&url, &[]).unwrap();
+        assert!(head.contains(&format!("User-Agent: LightCraft/{}\r\n", env!("CARGO_PKG_VERSION"))));
+        let head = request_head(&url, &[("User-Agent", "LightCraft/1 (+https://x.example)".into())]).unwrap();
+        assert_eq!(head.matches("User-Agent").count(), 1, "{head}");
+        assert!(head.contains("User-Agent: LightCraft/1 (+https://x.example)\r\n"));
+        assert!(head.ends_with("\r\n\r\n"));
+        assert!(request_head(&url, &[("X", "a\r\nb".into())]).is_err());
+    }
 
     #[test]
     fn fragment_only_or_empty_location_keeps_file_name_and_query() {
