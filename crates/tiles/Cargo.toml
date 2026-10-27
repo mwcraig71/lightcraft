@@ -1,0 +1,19 @@
+[package]
+name = "lightcraft-tiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LightCraft map tiles: Web Mercator math, tile sources, disk cache and fetch workers (L2)"
+
+[lints]
+workspace = true
+
+# tile fetching, the disk cache and decoding run natively only (the web build draws pins without tiles)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lightcraft-fetch = { workspace = true }
+lightcraft-codecs = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+png = { workspace = true }

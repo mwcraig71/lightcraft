@@ -3968,6 +3968,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightcraft-tiles"
+version = "0.14.0"
+dependencies = [
+ "lightcraft-codecs",
+ "lightcraft-fetch",
+ "log",
+ "png",
+ "proptest",
+]
+
+[[package]]
 name = "lightcraft-ui-egui"
 version = "0.14.0"
 dependencies = [
