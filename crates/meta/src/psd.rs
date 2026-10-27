@@ -117,7 +117,7 @@ mod tests {
     fn dated_metadata() -> Metadata {
         Metadata {
             capture_time: DateTime::parse_exif("2023:05:14 14:40:39"),
-            gps: Some(Gps { latitude: 45.0, longitude: 7.0, altitude: None }),
+            gps: Some(Gps { latitude: 45.0, longitude: 7.0, altitude: None, ..Default::default() }),
             ..Default::default()
         }
     }
@@ -147,7 +147,7 @@ mod tests {
     fn psd_extracts_xmp_without_exif() {
         let metadata = Metadata {
             capture_time: DateTime::parse_iso("2024-02-03T04:05:06Z"),
-            gps: Some(Gps { latitude: -33.9, longitude: 151.2, altitude: Some(25.0) }),
+            gps: Some(Gps { latitude: -33.9, longitude: 151.2, altitude: Some(25.0), ..Default::default() }),
             title: Some("Embedded XMP".into()),
             ..Default::default()
         };

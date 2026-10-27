@@ -240,7 +240,7 @@ impl Tracklog {
 }
 
 fn gps(p: &TrackPoint) -> Gps {
-    Gps { latitude: p.latitude, longitude: p.longitude, altitude: p.elevation }
+    Gps { latitude: p.latitude, longitude: p.longitude, altitude: p.elevation, ..Default::default() }
 }
 
 /// Linear interpolation, taking the short way across the ±180° meridian.
@@ -261,7 +261,7 @@ fn lerp(a: &TrackPoint, b: &TrackPoint, t: f64) -> Gps {
         (Some(x), Some(y)) => Some(x + (y - x) * t),
         (x, y) => x.or(y),
     };
-    Gps { latitude: a.latitude + (b.latitude - a.latitude) * t, longitude: lon, altitude }
+    Gps { latitude: a.latitude + (b.latitude - a.latitude) * t, longitude: lon, altitude, ..Default::default() }
 }
 
 #[cfg(test)]

@@ -167,7 +167,17 @@ fn read_gps(g: &Ifd) -> Option<Gps> {
         return None;
     }
     let altitude = g.f64(t::GPS_ALTITUDE).filter(|a| a.is_finite()).map(|a| if g.u32(t::GPS_ALTITUDE_REF) == Some(1) { -a } else { a });
-    Some(Gps { latitude: lat, longitude: lon, altitude })
+    let (direction, direction_magnetic) = read_direction(g).map_or((None, false), |(d, m)| (Some(d), m));
+    Some(Gps { latitude: lat, longitude: lon, altitude, direction, direction_magnetic })
+}
+
+/// Which way the camera pointed (`GPSImgDirection`, degrees from north, 0 to 360) and whether that
+/// is magnetic north (`GPSImgDirectionRef` `M`; `T` or no ref: true north). A value out of range or
+/// a zero denominator is no heading.
+fn read_direction(g: &Ifd) -> Option<(f64, bool)> {
+    let d = g.f64(t::GPS_IMG_DIRECTION).filter(|d| d.is_finite() && (0.0..=360.0).contains(d))?;
+    let magnetic = g.string(t::GPS_IMG_DIRECTION_REF).and_then(|r| r.trim_start().chars().next()).is_some_and(|c| c.eq_ignore_ascii_case(&'M'));
+    Some((Gps::bearing(d)?, magnetic))
 }
 
 /// Panasonic maker note tag `0x0051` (LensType in the ExifTool Panasonic tag names): the lens name, ASCII.
@@ -399,7 +409,33 @@ pub(crate) mod tests {
             assert!((g.latitude + 33.8599).abs() < 1e-4, "{g:?}");
             assert!((g.longitude - 151.2112).abs() < 1e-4);
             assert_eq!(g.altitude, Some(-12.5));
+            assert_eq!((g.direction, g.direction_magnetic), (None, false), "no heading recorded");
         }
+    }
+
+    #[test]
+    fn reads_the_compass_heading() {
+        let read = |r#ref: Option<&str>, dir: Vec<(u32, u32)>| {
+            let mut gps = IfdBuilder::new();
+            gps.set(t::GPS_LATITUDE_REF, Value::Ascii("N".into()));
+            gps.set(t::GPS_LATITUDE, Value::Rational(vec![(40, 1), (0, 1), (0, 1)]));
+            gps.set(t::GPS_LONGITUDE_REF, Value::Ascii("W".into()));
+            gps.set(t::GPS_LONGITUDE, Value::Rational(vec![(75, 1), (0, 1), (0, 1)]));
+            if let Some(r) = r#ref {
+                gps.set(t::GPS_IMG_DIRECTION_REF, Value::Ascii(r.into()));
+            }
+            gps.set(t::GPS_IMG_DIRECTION, Value::Rational(dir));
+            let mut ifd0 = IfdBuilder::new();
+            ifd0.set_child(t::GPS_IFD, gps);
+            let g = read_exif(&TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap()).gps.unwrap();
+            (g.direction, g.direction_magnetic)
+        };
+        assert_eq!(read(Some("T"), vec![(12345, 100)]), (Some(123.45), false), "true north");
+        assert_eq!(read(Some("M"), vec![(90, 1)]), (Some(90.0), true), "magnetic north");
+        assert_eq!(read(None, vec![(270, 1)]), (Some(270.0), false), "no ref: true north");
+        assert_eq!(read(Some("T"), vec![(360, 1)]), (Some(0.0), false), "a full turn is north");
+        assert_eq!(read(Some("T"), vec![(90, 0)]), (None, false), "zero denominator");
+        assert_eq!(read(Some("T"), vec![(400, 1)]), (None, false), "out of range");
     }
 
     #[test]
@@ -531,6 +567,10 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
             gps.set(t::GPS_ALTITUDE_REF, Value::Byte(vec![u8::from(a < 0.0)]));
             gps.set(t::GPS_ALTITUDE, Value::Rational(vec![rational(a.abs())]));
         }
+        if let Some(d) = g.direction.and_then(Gps::bearing) {
+            gps.set(t::GPS_IMG_DIRECTION_REF, Value::Ascii(if g.direction_magnetic { "M" } else { "T" }.into()));
+            gps.set(t::GPS_IMG_DIRECTION, Value::Rational(vec![rational(d)]));
+        }
         ifd0.set_child(t::GPS_IFD, gps);
     }
     TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap_or_default()
@@ -553,10 +593,12 @@ mod write_tests {
             iso: Some(400),
             focal_length: Some(35.0),
             lens_model: Some("35mm F2".into()),
-            gps: Some(Gps { latitude: 43.7904, longitude: -110.6818, altitude: Some(2000.0) }),
+            gps: Some(Gps { latitude: 43.7904, longitude: -110.6818, altitude: Some(2000.0), direction: Some(212.5), direction_magnetic: true }),
             ..Default::default()
         };
         let back = read_exif(&write_exif(&m));
+        let heading = back.gps.map(|g| (g.direction.map(|d| (d * 100.0).round() / 100.0), g.direction_magnetic));
+        assert_eq!(heading, Some((Some(212.5), true)), "the heading is written");
         assert_eq!(back.make, m.make);
         assert_eq!(back.model, m.model);
         assert_eq!(back.copyright, m.copyright);

@@ -308,7 +308,7 @@ pub fn export_metadata(photo: &lightcraft_catalog::Photo, catalog: &lightcraft_c
     // Pixels are exported upright: orientation is baked in.
     out.orientation = Some(lightcraft_meta::Orientation::Normal);
     if !o.remove_location {
-        out.gps = m.gps.map(|(latitude, longitude)| Gps { latitude, longitude, altitude: None });
+        out.gps = m.gps_record();
     }
     if o.metadata == MetadataPolicy::All {
         out.model = text(&m.camera);

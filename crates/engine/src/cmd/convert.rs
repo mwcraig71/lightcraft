@@ -240,6 +240,13 @@ fn fill_missing_meta(id: lightcraft_catalog::PhotoId, ph: &lightcraft_catalog::P
     m.aperture = m.aperture.or(src.aperture);
     m.iso = m.iso.or(src.iso);
     m.gps = m.gps.or(src.gps);
+    // altitude and heading, read since: kept with the file's own position (not a position set by hand)
+    if m.gps == src.gps {
+        m.gps_altitude = m.gps_altitude.or(src.gps_altitude);
+        if m.gps_direction.is_none() {
+            (m.gps_direction, m.gps_direction_magnetic) = (src.gps_direction, src.gps_direction_magnetic);
+        }
+    }
     // the camera's focus point: photos imported before it was read get it here
     if m.focus.is_none() {
         m.focus = src.focus.clone();
@@ -427,6 +434,25 @@ mod tests {
         // nothing missing → nothing to do
         ph.meta = (**meta).clone();
         ph.captured = Some("2026-10-04T08:16:11".into());
+        assert!(fill_missing_meta(PhotoId(1), &ph, &info).is_empty());
+    }
+
+    /// Reload from Disk gives a photo imported before altitude and headings were read its file's
+    /// altitude and compass heading, but not for a position the user set by hand.
+    #[test]
+    fn reload_fills_altitude_and_heading_for_the_files_own_position() {
+        let mut ph = Photo::new(PhotoId(1), Source::File { path: "/x.jpg".into() }, "x.jpg", "JPEG", 10, 10, "2026-10-06T00:00:00");
+        ph.meta.gps = Some((40.0, -75.0));
+        let mut info = crate::media::ProbeInfo::default();
+        info.meta.gps = Some((40.0, -75.0));
+        info.meta.gps_altitude = Some(12.0);
+        info.meta.gps_direction = Some(90.0);
+        info.meta.gps_direction_magnetic = true;
+        let ops = fill_missing_meta(PhotoId(1), &ph, &info);
+        let Some(Op::SetMeta { meta, .. }) = ops.first() else { panic!("{ops:?}") };
+        assert_eq!((meta.gps_altitude, meta.gps_direction, meta.gps_direction_magnetic), (Some(12.0), Some(90.0), true));
+        // moved by hand: the file's altitude and heading belong to another place
+        ph.meta.gps = Some((41.0, -75.0));
         assert!(fill_missing_meta(PhotoId(1), &ph, &info).is_empty());
     }
 

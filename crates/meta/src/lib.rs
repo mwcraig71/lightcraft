@@ -45,6 +45,21 @@ pub struct Gps {
     pub longitude: f64,
     /// Metres above sea level (negative below).
     pub altitude: Option<f64>,
+    /// Which way the camera pointed, in degrees clockwise from north (0 ≤ d < 360): EXIF/XMP
+    /// `GPSImgDirection` (phones, tablets), or a drone's gimbal yaw.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<f64>,
+    /// `direction` is from magnetic north (`GPSImgDirectionRef` `M`), not true north.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub direction_magnetic: bool,
+}
+
+impl Gps {
+    /// A heading in degrees as a bearing in 0 ≤ d < 360 (drones write yaw as −180…180); `None`
+    /// when it isn't a finite number within one turn either way.
+    pub fn bearing(degrees: f64) -> Option<f64> {
+        (degrees.is_finite() && (-360.0..=360.0).contains(&degrees)).then(|| degrees.rem_euclid(360.0) % 360.0)
+    }
 }
 
 /// Exif `Flash` value decoded.
@@ -150,6 +165,10 @@ pub struct Metadata {
     /// Where the camera focused, from its maker notes ([`focus`]; Sony only for now), on the upright photo.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focus: Option<FocusPoint>,
+    /// The camera's heading from a drone's own XMP (DJI `drone-dji:GimbalYawDegree`, as a
+    /// bearing), used for [`Gps::direction`] when the file has no `GPSImgDirection`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub camera_yaw: Option<f64>,
 }
 
 macro_rules! fill {
@@ -202,7 +221,8 @@ impl Metadata {
             state,
             country,
             rating,
-            label
+            label,
+            camera_yaw
         );
         if self.keywords.is_empty() {
             self.keywords = other.keywords.clone();
@@ -221,7 +241,18 @@ impl Metadata {
     /// Replace the user-editable fields (rating, label, title, caption, artist, copyright, keywords, GPS) with
     /// `other`'s where `other` has them — the XMP-over-EXIF precedence rule.
     pub fn overlay_user_fields(&mut self, other: &Metadata) {
+        let before = self.gps;
         overlay!(self, other, rating, label, title, caption, artist, copyright, copyright_marked, usage_terms, copyright_url, gps);
+        // an XMP position without altitude or heading (written before LightCraft kept them) keeps the file's
+        if let (Some(g), Some(old)) = (&mut self.gps, before) {
+            if g.altitude.is_none() {
+                g.altitude = old.altitude;
+            }
+            if g.direction.is_none() {
+                (g.direction, g.direction_magnetic) = (old.direction, old.direction_magnetic);
+            }
+        }
+        self.apply_camera_yaw(other.camera_yaw);
         if !other.keywords.is_empty() {
             self.keywords = other.keywords.clone();
         }
@@ -230,6 +261,15 @@ impl Metadata {
         }
         if !other.regions.is_empty() {
             self.regions = other.regions.clone();
+        }
+    }
+
+    /// A drone's camera heading (`yaw`, a bearing) as the position's direction when it has none.
+    pub fn apply_camera_yaw(&mut self, yaw: Option<f64>) {
+        if let (Some(g), Some(y)) = (&mut self.gps, yaw.or(self.camera_yaw))
+            && g.direction.is_none()
+        {
+            (g.direction, g.direction_magnetic) = (Some(y), false);
         }
     }
 

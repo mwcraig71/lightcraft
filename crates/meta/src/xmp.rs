@@ -38,6 +38,8 @@ const NAMESPACES: &[(&str, &str)] = &[
     ("mwg-rs", "http://www.metadataworkinggroup.com/schemas/regions/"),
     ("stArea", "http://ns.adobe.com/xmp/sType/Area#"),
     ("stDim", "http://ns.adobe.com/xap/1.0/sType/Dimensions#"),
+    // Read-only: DJI drones' own properties (the gimbal's heading; see docs/map.md).
+    ("drone-dji", "http://www.dji.com/drone-dji/1.0/"),
 ];
 
 /// The camera-raw-settings namespace URI (prefix `crs`), read for interchange only.
@@ -600,8 +602,14 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         && (-180.0..=180.0).contains(&lon)
     {
         let altitude = num("exif:GPSAltitude").map(|a| if first("exif:GPSAltitudeRef").as_deref() == Some("1") { -a } else { a });
-        m.gps = Some(Gps { latitude: lat, longitude: lon, altitude });
+        let direction = num("exif:GPSImgDirection").filter(|d| (0.0..=360.0).contains(d)).and_then(Gps::bearing);
+        let direction_magnetic = direction.is_some()
+            && first("exif:GPSImgDirectionRef").and_then(|r| r.trim_start().chars().next()).is_some_and(|c| c.eq_ignore_ascii_case(&'M'));
+        m.gps = Some(Gps { latitude: lat, longitude: lon, altitude, direction, direction_magnetic });
     }
+    // DJI drones: the gimbal's yaw (−180…180, the camera's heading), used when no GPSImgDirection
+    m.camera_yaw = num("drone-dji:GimbalYawDegree").and_then(Gps::bearing);
+    m.apply_camera_yaw(None);
     m.regions = values.get("mwg-rs:Regions").map(parse_regions).unwrap_or_default();
     let lc_settings = props.get("lc:settings").and_then(|v| v.first()).cloned();
     Ok(XmpData { metadata: m, lc_settings, properties: props, values })
@@ -673,6 +681,10 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
             push("exif:GPSAltitude", Some(frac(a.abs())));
             push("exif:GPSAltitudeRef", Some(if a < 0.0 { "1" } else { "0" }.into()));
         }
+        if let Some(d) = g.direction.and_then(Gps::bearing) {
+            push("exif:GPSImgDirection", Some(frac(d)));
+            push("exif:GPSImgDirectionRef", Some(if g.direction_magnetic { "M" } else { "T" }.into()));
+        }
     }
 
     let mut x = String::new();
@@ -680,7 +692,7 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     x.push_str("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"LightCraft\">\n");
     x.push_str(" <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n");
     x.push_str("  <rdf:Description rdf:about=\"\"");
-    for (p, u) in NAMESPACES.iter().skip(2).filter(|(p, _)| *p != "crs") {
+    for (p, u) in NAMESPACES.iter().skip(2).filter(|(p, _)| !matches!(*p, "crs" | "drone-dji")) {
         x.push_str(&format!("\n    xmlns:{p}=\"{u}\""));
     }
     x.push_str(">\n");

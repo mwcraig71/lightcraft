@@ -179,6 +179,16 @@ pub struct Meta {
     pub state: String,
     pub country: String,
     pub gps: Option<(f64, f64)>,
+    /// Metres above sea level where the photo was taken (from the file or a GPX track). Left out
+    /// of the catalog JSON when unknown, like the heading below, so older catalogs read unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_altitude: Option<f64>,
+    /// Which way the camera pointed, degrees clockwise from north (phones, tablets, drones).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_direction: Option<f32>,
+    /// [`Meta::gps_direction`] is from magnetic north, not true north.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub gps_direction_magnetic: bool,
     pub title: String,
     pub caption: String,
     /// Accessibility text and long description.
@@ -204,6 +214,32 @@ pub struct Meta {
     /// written to XMP. Left out of the catalog JSON when unknown, so older catalogs read unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focus: Option<lightcraft_meta::FocusPoint>,
+}
+
+impl Meta {
+    /// The location as file metadata (EXIF / XMP), with its altitude and heading.
+    pub fn gps_record(&self) -> Option<lightcraft_meta::Gps> {
+        self.gps.map(|(latitude, longitude)| lightcraft_meta::Gps {
+            latitude,
+            longitude,
+            altitude: self.gps_altitude,
+            direction: self.gps_direction.map(f64::from),
+            direction_magnetic: self.gps_direction_magnetic && self.gps_direction.is_some(),
+        })
+    }
+
+    /// Take the location, altitude and heading from file metadata (`None`: no location).
+    pub fn set_gps_record(&mut self, g: Option<&lightcraft_meta::Gps>) {
+        self.gps = g.map(|g| (g.latitude, g.longitude));
+        self.gps_altitude = g.and_then(|g| g.altitude).filter(|a| a.is_finite());
+        self.gps_direction = g.and_then(|g| g.direction).and_then(lightcraft_meta::Gps::bearing).map(|d| d as f32);
+        self.gps_direction_magnetic = self.gps_direction.is_some() && g.is_some_and(|g| g.direction_magnetic);
+    }
+
+    /// Clear the location with its altitude and heading.
+    pub fn clear_gps(&mut self) {
+        self.set_gps_record(None);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

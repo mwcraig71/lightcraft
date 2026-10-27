@@ -1122,7 +1122,7 @@ fn psb_import_retains_capture_time_and_all_metadata() {
     let capture = lightcraft_meta::DateTime::parse_exif("2023:05:14 14:40:39");
     let metadata = lightcraft_meta::Metadata {
         capture_time: capture,
-        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }),
+        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None, ..Default::default() }),
         title: Some("PSB original".into()),
         ..Default::default()
     };

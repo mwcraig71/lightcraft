@@ -30,7 +30,7 @@ fn psd_probe_reads_embedded_capture_time_gps_and_title() {
     let capture = lightcraft_meta::DateTime::parse_iso("2023-05-14T14:40:39").unwrap();
     let metadata = lightcraft_meta::Metadata {
         capture_time: Some(capture),
-        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }),
+        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None, ..Default::default() }),
         title: Some("PSD metadata".into()),
         ..Default::default()
     };

@@ -396,7 +396,7 @@ mod tests {
             f_number: Some(2.8),
             iso: Some(400),
             focal_length: Some(35.0),
-            gps: Some(crate::Gps { latitude: 51.5, longitude: -0.12, altitude: Some(20.0) }),
+            gps: Some(crate::Gps { latitude: 51.5, longitude: -0.12, altitude: Some(20.0), ..Default::default() }),
             ..Default::default()
         };
         let exif = crate::write_exif(&m);

@@ -599,8 +599,10 @@ fn hdr_avif_export_hlg() {
 #[test]
 fn remove_location_holds_for_original_and_dng_exports() {
     let dir = temp_dir("export-noloc");
-    let gps =
-        lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 48.85, longitude: 2.35, altitude: None }), ..Default::default() };
+    let gps = lightcraft_meta::Metadata {
+        gps: Some(lightcraft_meta::Gps { latitude: 48.85, longitude: 2.35, altitude: None, ..Default::default() }),
+        ..Default::default()
+    };
     // a raw with no embedded GPS, located in the catalog
     let raw = dir.join("Raw.dng");
     std::fs::write(&raw, synthetic_dng_with(None, Default::default())).unwrap();
@@ -668,7 +670,10 @@ fn metadata_none_in_any_case_exports_no_metadata() {
 #[test]
 fn remove_location_refuses_a_raw_that_embeds_gps() {
     let dir = temp_dir("export-noloc-raw");
-    let gps = lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 10.0, longitude: 20.0, altitude: None }), ..Default::default() };
+    let gps = lightcraft_meta::Metadata {
+        gps: Some(lightcraft_meta::Gps { latitude: 10.0, longitude: 20.0, altitude: None, ..Default::default() }),
+        ..Default::default()
+    };
     let raw = dir.join("Geo.dng");
     let bytes = synthetic_dng_with(Some(&lightcraft_meta::write_xmp(&gps, None)), Default::default());
     assert!(lightcraft_meta::extract(&bytes).gps.is_some(), "fixture embeds GPS");
@@ -684,7 +689,10 @@ fn remove_location_refuses_a_raw_that_embeds_gps() {
 #[test]
 fn remove_location_refuses_a_psd_that_embeds_gps() {
     let dir = temp_dir("export-noloc-psd");
-    let gps = lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }), ..Default::default() };
+    let gps = lightcraft_meta::Metadata {
+        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None, ..Default::default() }),
+        ..Default::default()
+    };
     let path = dir.join("Geo.psd");
     let bytes = synthetic_psd_with_metadata(&gps);
     assert_eq!(lightcraft_meta::extract(&bytes).gps, gps.gps, "the fixture embeds EXIF GPS");
@@ -721,7 +729,10 @@ fn remove_location_refuses_a_psd_with_unreadable_xmp() {
 fn remove_location_refuses_a_psd_with_invalid_utf8_xmp() {
     let dir = temp_dir("export-noloc-psd-invalid-utf8");
     let path = dir.join("Invalid.psd");
-    let gps = lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }), ..Default::default() };
+    let gps = lightcraft_meta::Metadata {
+        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None, ..Default::default() }),
+        ..Default::default()
+    };
     let xmp = lightcraft_meta::write_xmp(&gps, None);
     let pixels = [40, 80, 120];
     let image = lightcraft_codecs::EncodeImage::new(1, 1, 3, lightcraft_codecs::Samples::U8(&pixels));
@@ -744,7 +755,10 @@ fn remove_location_refuses_a_psd_with_invalid_utf8_xmp() {
 #[test]
 fn remove_location_refuses_a_psd_with_unreadable_resources() {
     let dir = temp_dir("export-noloc-psd-malformed");
-    let gps = lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }), ..Default::default() };
+    let gps = lightcraft_meta::Metadata {
+        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None, ..Default::default() }),
+        ..Default::default()
+    };
     let path = dir.join("Geo.psd");
     let valid_bytes = synthetic_psd_with_metadata(&gps);
     assert_eq!(lightcraft_meta::extract(&valid_bytes).gps, gps.gps, "the fixture embeds EXIF GPS before corruption");
@@ -1202,4 +1216,38 @@ fn same_folder_as_original_refuses_photos_without_a_folder() {
     let e = files[0]["error"].as_str().unwrap();
     assert!(e.contains("folder is missing") && e.contains(&gone), "{e}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A phone photo's compass heading and altitude survive import, the XMP sidecar, JPEG export and
+/// Edit Info; clearing the location clears them too.
+#[test]
+fn gps_heading_and_altitude_survive_import_and_export() {
+    let dir = temp_dir("export-heading");
+    let gps = lightcraft_meta::Gps { latitude: 37.82, longitude: -122.478, altitude: Some(67.0), direction: Some(355.5), direction_magnetic: false };
+    let jpg = dir.join("Phone.jpg");
+    let img = lightcraft_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
+    let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata { gps: Some(gps), ..Default::default() });
+    let meta = lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() };
+    std::fs::write(&jpg, lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&img), 90, Default::default(), &meta).unwrap())
+        .unwrap();
+    let mut s = Session::new().with_fs();
+    s.execute("library.import", &json!({"paths": [jpg.to_string_lossy()]})).unwrap();
+    let id = s.catalog.photos().next().unwrap().id;
+    let m = s.catalog.photo(id).unwrap().meta.clone();
+    assert_eq!((m.gps_altitude, m.gps_direction, m.gps_direction_magnetic), (Some(67.0), Some(355.5), false));
+    // the sidecar and an exported JPEG carry them
+    let side = crate::sidecar::sidecar_packet(s.catalog.photo(id).unwrap(), &s.catalog);
+    let back = lightcraft_meta::parse_xmp(&side).unwrap().metadata.gps.unwrap();
+    assert_eq!((back.altitude, back.direction), (Some(67.0), Some(355.5)));
+    let out = export_photo(&mut s, id, &ExportOptions::from_json(&json!({"format": "jpeg"})), 1).unwrap();
+    let g = lightcraft_meta::extract(&out.bytes).gps.unwrap();
+    assert_eq!(g.altitude, Some(67.0), "altitude is no longer dropped on export");
+    assert!((g.direction.unwrap() - 355.5).abs() < 1e-3);
+    // a position typed in keeps the heading but not the altitude; no location clears both
+    s.execute("photo.setMeta", &json!({"ids": [id.0], "gps": [37.821, -122.478]})).unwrap();
+    let m = s.catalog.photo(id).unwrap().meta.clone();
+    assert_eq!((m.gps_altitude, m.gps_direction), (None, Some(355.5)));
+    s.execute("photo.setMeta", &json!({"ids": [id.0], "gps": null})).unwrap();
+    let m = s.catalog.photo(id).unwrap().meta.clone();
+    assert_eq!((m.gps, m.gps_altitude, m.gps_direction), (None, None, None));
 }

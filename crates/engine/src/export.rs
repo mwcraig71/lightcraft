@@ -6,7 +6,7 @@
 
 use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, JxlColour, JxlOptions, NamedSpace, Samples, encode, icc};
 pub use lightcraft_codecs::{JxlEffort, TiffCompression};
-use lightcraft_meta::{DateTime, Gps, Metadata};
+use lightcraft_meta::{DateTime, Metadata};
 pub use lightcraft_pipeline::{DeepImage, DeepSamples, OutputDepth, OutputSpace};
 use lightcraft_raster::Rgba8;
 use serde::{Deserialize, Serialize};

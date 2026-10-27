@@ -131,9 +131,12 @@ fn auto_tag_tracklog(s: &mut crate::Session, p: &Value) -> Result<Value> {
         }
         let pos = ((g.latitude * 1e7).round() / 1e7, (g.longitude * 1e7).round() / 1e7);
         photos.push(json!({"id": id.0, "gps": [pos.0, pos.1], "match": if m == Match::Interpolated { "interpolated" } else { "nearest" }}));
-        if ph.meta.gps != Some(pos) {
+        let altitude = g.altitude.filter(|a| a.is_finite());
+        if ph.meta.gps != Some(pos) || ph.meta.gps_altitude != altitude {
             let mut meta = ph.meta.clone();
             meta.gps = Some(pos);
+            // the track's elevation; a camera without GPS records no heading, so any heading stays
+            meta.gps_altitude = altitude;
             ops.push(Op::SetMeta { id, meta: Box::new(meta) });
         }
     }

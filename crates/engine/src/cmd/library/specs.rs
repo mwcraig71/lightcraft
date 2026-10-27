@@ -716,8 +716,15 @@ pub fn specs() -> Vec<CommandSpec> {
                 for id in targets {
                     let Some(ph) = s.catalog.photo(id) else { continue };
                     let mut m = ph.meta.clone();
-                    if let Some(g) = gps {
+                    if let Some(g) = gps
+                        && g != m.gps
+                    {
+                        // a position typed in has no altitude; the heading stays unless the location goes
                         m.gps = g;
+                        m.gps_altitude = None;
+                        if g.is_none() {
+                            m.clear_gps();
+                        }
                     }
                     if let Some(st) = status {
                         m.copyright_status = st;

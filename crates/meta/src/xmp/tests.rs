@@ -6,6 +6,7 @@ fn full() -> Metadata {
         // roundtrip fixture must leave this empty or `roundtrip_all_fields` can't round-trip it.
         regions: Vec::new(),
         focus: None,
+        camera_yaw: None,
         make: Some("Maker & Sons".into()),
         model: Some("X <1>".into()),
         serial_number: Some("SN1".into()),
@@ -26,7 +27,7 @@ fn full() -> Metadata {
         metering_mode: Some(3),
         white_balance: Some(1),
         orientation: Some(Orientation::Rotate270),
-        gps: Some(Gps { latitude: 48.858222, longitude: -2.2945, altitude: Some(-3.5) }),
+        gps: Some(Gps { latitude: 48.858222, longitude: -2.2945, altitude: Some(-3.5), ..Default::default() }),
         width: Some(8000),
         height: Some(6000),
         artist: Some("Ann \"Photo\" Lee".into()),
@@ -232,8 +233,8 @@ fn xmp_gps_out_of_range_rejected() {
     assert_eq!(gps("95,0N", "10,0E"), None);
     assert_eq!(gps("10,0S", "200,30W"), None);
     assert_eq!(gps("90,0,1N", "0,0E"), None);
-    assert_eq!(gps("90,0N", "180,0E"), Some(Gps { latitude: 90.0, longitude: 180.0, altitude: None }));
-    assert_eq!(gps("90,0S", "180,0W"), Some(Gps { latitude: -90.0, longitude: -180.0, altitude: None }));
+    assert_eq!(gps("90,0N", "180,0E"), Some(Gps { latitude: 90.0, longitude: 180.0, altitude: None, ..Default::default() }));
+    assert_eq!(gps("90,0S", "180,0W"), Some(Gps { latitude: -90.0, longitude: -180.0, altitude: None, ..Default::default() }));
 }
 
 /// MWG Region Guidelines v2.0, element form (`rdf:parseType="Resource"`, self-closing `Area`) — how
@@ -482,4 +483,57 @@ fn flattened_keys_stay_within_the_cumulative_budget() {
     assert!(total <= MAX_KEY_BYTES, "flattened-key text {total} is over the {MAX_KEY_BYTES} budget");
     assert!(d.properties.len() < 3000, "keys stop being added once the budget is spent");
     assert!(!d.properties.is_empty(), "properties parsed before the budget are kept");
+}
+
+/// The compass heading round-trips (true and magnetic north); a missing ref is true north; a
+/// value out of range is no heading.
+#[test]
+fn gps_heading() {
+    for magnetic in [false, true] {
+        let g = Gps { latitude: 40.0, longitude: -75.0, direction: Some(123.5), direction_magnetic: magnetic, ..Default::default() };
+        let m = Metadata { gps: Some(g), ..Default::default() };
+        let back = parse_xmp(&write_xmp(&m, None)).unwrap().metadata.gps.unwrap();
+        assert_eq!((back.direction, back.direction_magnetic), (Some(123.5), magnetic));
+    }
+    let read = |extra: &str| {
+        let x = format!(
+            r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="40,0N" exif:GPSLongitude="75,0W" {extra}/>"#
+        );
+        let g = parse_xmp(&x).unwrap().metadata.gps.unwrap();
+        (g.direction, g.direction_magnetic)
+    };
+    assert_eq!(read(r#"exif:GPSImgDirection="9000/100""#), (Some(90.0), false));
+    assert_eq!(read(r#"exif:GPSImgDirection="45" exif:GPSImgDirectionRef="M""#), (Some(45.0), true));
+    assert_eq!(read(r#"exif:GPSImgDirection="361""#), (None, false));
+    assert_eq!(read(r#"exif:GPSImgDirection="1/0""#), (None, false));
+    assert_eq!(read(""), (None, false));
+    // no heading: none written
+    let m = Metadata { gps: Some(Gps { latitude: 1.0, longitude: 2.0, ..Default::default() }), ..Default::default() };
+    assert!(!write_xmp(&m, None).contains("GPSImgDirection"));
+}
+
+/// A DJI drone's gimbal yaw (−180…180) is the heading when there is no GPSImgDirection, and the
+/// drone namespace is never written back.
+#[test]
+fn drone_gimbal_yaw_is_the_heading() {
+    let read = |yaw: &str, extra: &str| {
+        let x = format!(
+            r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                xmlns:exif="http://ns.adobe.com/exif/1.0/" xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"
+                exif:GPSLatitude="40,0N" exif:GPSLongitude="75,0W" drone-dji:GimbalYawDegree="{yaw}" {extra}/>"#
+        );
+        parse_xmp(&x).unwrap().metadata
+    };
+    assert_eq!(read("-90.5", "").gps.unwrap().direction, Some(269.5));
+    assert_eq!(read("+12.30", "").gps.unwrap().direction, Some(12.3));
+    assert_eq!(read("-90", r#"exif:GPSImgDirection="10""#).gps.unwrap().direction, Some(10.0), "GPSImgDirection wins");
+    assert_eq!(read("999", "").gps.unwrap().direction, None);
+    // EXIF position from the file, yaw from its XMP packet
+    let mut exif = Metadata { gps: Some(Gps { latitude: 40.0, longitude: -75.0, ..Default::default() }), ..Default::default() };
+    let xmp = Metadata { camera_yaw: Some(200.0), ..Default::default() };
+    exif.overlay_user_fields(&xmp);
+    assert_eq!(exif.gps.unwrap().direction, Some(200.0));
+    let written = write_xmp(&read("10", ""), None);
+    assert!(!written.contains("drone-dji"), "{written}");
 }

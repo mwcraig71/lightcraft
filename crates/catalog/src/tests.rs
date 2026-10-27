@@ -1046,3 +1046,31 @@ fn a_batch_that_cannot_be_rolled_back_whole_makes_earlier_changes_unknown() {
     assert_eq!(c.touched_since(start), None, "so nothing is said of what changed");
     assert_eq!(c.touched_since(c.revision), Some(vec![]), "from after it, it is known again");
 }
+
+/// Altitude and heading are optional: a catalog written before them loads, and a photo without
+/// them serializes exactly as before (no new keys).
+#[test]
+fn gps_altitude_and_heading_are_backward_compatible() {
+    let old = r#"{"camera":"X","gps":[40.0,-75.0],"title":"t"}"#;
+    let m: Meta = serde_json::from_str(old).unwrap();
+    assert_eq!((m.gps, m.gps_altitude, m.gps_direction, m.gps_direction_magnetic), (Some((40.0, -75.0)), None, None, false));
+    let json = serde_json::to_string(&m).unwrap();
+    assert!(!json.contains("gps_altitude") && !json.contains("gps_direction"), "{json}");
+    let before = serde_json::to_string(&Meta { gps: Some((40.0, -75.0)), camera: "X".into(), title: "t".into(), ..Default::default() }).unwrap();
+    assert_eq!(json, before);
+    // with them, they round-trip
+    let mut m = m;
+    m.set_gps_record(Some(&lightcraft_meta::Gps {
+        latitude: 40.0,
+        longitude: -75.0,
+        altitude: Some(12.5),
+        direction: Some(-90.0),
+        direction_magnetic: true,
+    }));
+    assert_eq!((m.gps_altitude, m.gps_direction, m.gps_direction_magnetic), (Some(12.5), Some(270.0), true));
+    let back: Meta = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+    assert_eq!(back, m);
+    assert_eq!(back.gps_record().unwrap().direction, Some(270.0));
+    m.clear_gps();
+    assert_eq!(m, Meta { camera: "X".into(), title: "t".into(), ..Default::default() });
+}
