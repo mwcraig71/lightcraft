@@ -56,10 +56,15 @@ pub(super) fn film_label(name: &str) -> String {
 /// the range; in Compare they adjust the pair's selection, and a plain click replaces the active
 /// side.
 pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
+    let ids = app.session.visible_cloned();
+    filmstrip_of(app, ui, r, ids);
+}
+
+/// [`filmstrip`] of `ids` only (the Map view narrowed to the photos at one spot).
+pub(crate) fn filmstrip_of(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: Vec<PhotoId>) {
     let t = Tokens::get(ui.ctx());
     ui.painter().rect_filled(r, 0.0, t.canvas);
     ui.painter().rect_filled(Rect::from_min_size(r.min, vec2(r.width(), 4.0)), 0.0, Color32::from_gray(0x20));
-    let ids = app.session.visible_cloned();
     let active = app.session.selection.active;
     let cell_w = 120.0;
     let ppp = ui.ctx().pixels_per_point();

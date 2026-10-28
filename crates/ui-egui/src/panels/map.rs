@@ -31,8 +31,9 @@ pub use pins::{Pin, cluster};
 pub use settings::settings_tab;
 pub use view::{show, tiles_loading};
 
-/// Deepest zoom the view goes to (OSM's deepest tiles; USGS tiles are scaled up past 16).
-pub const MAX_ZOOM: f64 = 19.0;
+/// Deepest zoom the view goes to (about 4 cm a point): past a source's deepest tiles they are
+/// scaled up, so neighbouring photos on a deck still separate.
+pub const MAX_ZOOM: f64 = 22.0;
 pub const MIN_ZOOM: f64 = 1.0;
 /// Zoom a single photo (or a cluster of photos at one spot) is shown at.
 pub const PHOTO_ZOOM: f64 = 17.0;
@@ -56,11 +57,15 @@ pub struct MapState {
     /// The active photo whose pin was last brought on screen.
     #[serde(skip)]
     pub followed: Option<u64>,
+    /// The photos a click on a cluster or site narrowed the filmstrip to (empty: all of them).
+    /// Saved like `fitted`, so restoring the UI state (`ui.set`) doesn't widen it again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub focus: Vec<u64>,
 }
 
 impl Default for MapState {
     fn default() -> Self {
-        MapState { center: [0.5, 0.5], zoom: 2.0, track: true, fit_pending: true, fitted: None, followed: None }
+        MapState { center: [0.5, 0.5], zoom: 2.0, track: true, fit_pending: true, fitted: None, followed: None, focus: Vec::new() }
     }
 }
 
@@ -123,13 +128,16 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         "view.map" => {
             app.ui.view = ViewMode::Map;
             app.ui.map.fit_pending = true;
+            app.ui.map.focus.clear();
             let pins = pins::collect(app);
             Ok(json!({"photos": pins.total, "located": pins.pins.len()}))
         }
         "map.fitAll" => {
             app.ui.map.fit_pending = true;
+            app.ui.map.focus.clear();
             Ok(Value::Null)
         }
+        "map.focus" => focus(app, p.get("ids")),
         "map.toggleTrack" => match p.get("on") {
             None => {
                 app.ui.map.track = !app.ui.map.track;
@@ -151,6 +159,23 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         "map.clearCache" => clear_cache(app),
         _ => return None,
     })
+}
+
+/// `map.focus {ids}`: narrow the filmstrip to these photos and select them (a click on a cluster
+/// does this); `[]` or no `ids` shows every photo again.
+fn focus(app: &mut LightcraftApp, ids: Option<&Value>) -> Result<Value, String> {
+    let ids: Vec<u64> = match ids {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(a)) => {
+            a.iter().map(|v| v.as_u64().ok_or_else(|| format!("map.focus: `ids` must be photo ids, not {v}"))).collect::<Result<_, _>>()?
+        }
+        Some(v) => return Err(format!("map.focus: `ids` must be a list of photo ids, not {v}")),
+    };
+    if !ids.is_empty() {
+        app.run("library.select", json!({"ids": ids, "mode": "replace"}))?;
+    }
+    app.ui.map.focus = ids;
+    Ok(json!({"focus": app.ui.map.focus.len()}))
 }
 
 /// `view.map {photo}`: select the photo and open the Map view centred on it at [`PHOTO_ZOOM`]
@@ -176,6 +201,7 @@ fn open_at_photo(app: &mut LightcraftApp, photo: Option<&Value>) -> Result<Value
     m.fit_pending = false;
     m.fitted = Some(pins.key);
     m.followed = Some(id.0);
+    m.focus.clear();
     Ok(json!({"photos": pins.total, "located": pins.pins.len(), "photo": id.0}))
 }
 

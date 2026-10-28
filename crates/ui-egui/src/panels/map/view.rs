@@ -48,7 +48,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let status = Rect::from_min_max(full.min, pos2(full.right(), full.top() + STATUS_H));
     let map_rect = Rect::from_min_max(pos2(full.left(), status.bottom()), pos2(full.right(), full.bottom() - film_h));
     if app.ui.filmstrip {
-        crate::panels::detail::filmstrip(app, ui, Rect::from_min_max(pos2(full.left(), map_rect.bottom()), full.max));
+        // a click on a cluster narrows the strip to its photos (in the grid's order)
+        let mut ids = app.session.visible_cloned();
+        if !app.ui.map.focus.is_empty() {
+            let focus: std::collections::HashSet<u64> = app.ui.map.focus.iter().copied().collect();
+            ids.retain(|id| focus.contains(&id.0));
+        }
+        crate::panels::detail::filmstrip_of(app, ui, Rect::from_min_max(pos2(full.left(), map_rect.bottom()), full.max), ids);
     }
     let pins = pins::collect(app);
     status_line(app, ui, status, &pins);
@@ -77,7 +83,22 @@ fn status_line(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, pins: &Pins)
         register(ui, "map:without", link.rect);
         if link.clicked() {
             let ids: Vec<u64> = pins.without.iter().map(|i| i.0).collect();
+            app.ui.map.focus.clear();
             let _ = app.run("library.select", json!({"ids": ids, "mode": "replace"}));
+        }
+    }
+    // the filmstrip narrowed to one spot's photos, and the way back to all of them
+    if !app.ui.map.focus.is_empty() {
+        ui.add_space(16.0);
+        let n = app.ui.map.focus.len();
+        let here = ui.label(RichText::new(tr_format!("Filmstrip: {n} photos here", n = n)).font(t.semibold(12.0)).color(t.text));
+        register(ui, "map:focus", here.rect);
+        ui.add_space(6.0);
+        let all =
+            ui.link(RichText::new(tr("Show All")).font(t.font(12.0)).color(t.accent)).on_hover_text(tr("Show every photo in the filmstrip again"));
+        register(ui, "map:focusClear", all.rect);
+        if all.clicked() {
+            let _ = app.run("map.focus", json!({"ids": []}));
         }
     }
 }
@@ -86,6 +107,10 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     let mut vp = Viewport::from_state(rect, &app.ui.map);
     // fit on opening, after Fit All, and when the folder or filter changes the pins
     if app.ui.map.fit_pending || app.ui.map.fitted != Some(pins.key) {
+        if app.ui.map.fitted != Some(pins.key) {
+            // another folder or filter: the narrowed filmstrip belonged to the old one
+            app.ui.map.focus.clear();
+        }
         fit(&mut vp, pins.pins.iter().map(|p| p.world));
         app.ui.map.fit_pending = false;
         app.ui.map.fitted = Some(pins.key);
@@ -187,16 +212,24 @@ fn fit(vp: &mut Viewport, points: impl Iterator<Item = (f64, f64)>) {
 }
 
 /// A pin selects its photo (Shift: a range, Cmd/Ctrl: toggle, as in the grid). A cluster zooms
-/// in to its photos; one that can't come apart (photos taken at one spot) selects them all. A
-/// site zooms in to its photos.
+/// in to its photos, selects them and narrows the filmstrip to them (`map.focus`); one that can't
+/// come apart (photos taken at one spot) zooms one step. A site zooms in to its photos (and
+/// narrows the filmstrip when other sites are in the list). A pin outside the narrowed set shows
+/// every photo again.
 fn click(app: &mut LightcraftApp, ui: &egui::Ui, vp: &mut Viewport, pins: &Pins, c: &Cluster) {
     let ids: Vec<u64> = c.members.iter().filter_map(|i| pins.pins.get(*i)).map(|p| p.id.0).collect();
     if c.site.is_some() {
         fit(vp, c.members.iter().filter_map(|i| pins.pins.get(*i)).map(|p| p.world));
         vp.zoom = vp.zoom.max(super::pins::SITE_MAX_ZOOM);
+        if ids.len() < pins.pins.len() {
+            let _ = app.run("map.focus", json!({"ids": ids}));
+        }
         return;
     }
     if let [only] = ids.as_slice() {
+        if !app.ui.map.focus.is_empty() && !app.ui.map.focus.contains(only) {
+            app.ui.map.focus.clear();
+        }
         let m = ui.input(|i| i.modifiers);
         let mode = if m.shift {
             "range"
@@ -211,11 +244,11 @@ fn click(app: &mut LightcraftApp, ui: &egui::Ui, vp: &mut Viewport, pins: &Pins,
     }
     let before = vp.zoom;
     fit(vp, c.members.iter().filter_map(|i| pins.pins.get(*i)).map(|p| p.world));
-    // at the deepest zoom (or no deeper than now) the cluster stays: select its photos
+    // at the deepest zoom (or no deeper than now) the cluster stays: one step closer
     if vp.zoom <= before + 0.01 {
         vp.zoom = (before + 1.0).min(super::MAX_ZOOM);
-        let _ = app.run("library.select", json!({"ids": ids, "mode": "replace"}));
     }
+    let _ = app.run("map.focus", json!({"ids": ids}));
 }
 
 /// Fit All, Track, the tile source and + / −, top-right.

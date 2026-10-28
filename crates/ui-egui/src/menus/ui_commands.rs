@@ -73,6 +73,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.people", "People", None, "View"),
     ("view.map", "Map", None, "View"),
     ("map.fitAll", "Fit All Photos on the Map", None, ""),
+    ("map.focus", "Show Only These Photos in the Map Filmstrip", None, ""),
     ("map.toggleTrack", "Map Track Line", None, ""),
     ("map.setTileSource", "Map Tiles", None, ""),
     ("map.clearCache", "Clear Map Tile Cache", None, ""),

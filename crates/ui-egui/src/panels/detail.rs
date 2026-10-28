@@ -33,6 +33,7 @@ use filmstrip::film_label;
 #[cfg(test)]
 pub(crate) use filmstrip::film_spoken;
 pub(crate) use filmstrip::filmstrip;
+pub(crate) use filmstrip::filmstrip_of;
 use filmstrip::navigator;
 pub use geometry::CanvasMap;
 #[cfg(test)]

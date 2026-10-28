@@ -423,3 +423,57 @@ fn export_photo_locations_writes_kml_and_says_what_it_left_out() {
     assert_eq!(r["ok"], false, "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn clicking_a_cluster_narrows_the_filmstrip_to_its_photos() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    let ids = bridge(&mut h);
+    open_map(&mut h);
+    let film = |h: &Headless| -> Vec<String> {
+        let mut f: Vec<String> = h.app.widgets.iter().filter(|(w, _)| w.starts_with("film:")).map(|(w, _)| w.clone()).collect();
+        f.sort();
+        f
+    };
+    assert!(film(&h).len() > 3, "every photo in the strip at first: {:?}", film(&h));
+    h.app.ui.map.zoom = 15.0;
+    h.step();
+    h.step();
+    let c = widget(&h, "mapCluster:3").expect("one cluster of the three");
+    click_at(&mut h, c.center());
+    h.step();
+    let mut want: Vec<String> = ids[..3].iter().map(|i| format!("film:{}", i.0)).collect();
+    want.sort();
+    assert_eq!(film(&h), want, "only the cluster's photos in the filmstrip");
+    let mut sel = h.app.session.selection.ids.clone();
+    sel.sort();
+    let mut three = ids[..3].to_vec();
+    three.sort();
+    assert_eq!(sel, three, "and selected");
+    assert!(h.painted_text().iter().any(|t| t.contains("Filmstrip: 3 photos here")), "{:?}", h.painted_text());
+    // Show All brings every photo back
+    let all = widget(&h, "map:focusClear").expect("Show All");
+    click_at(&mut h, all.center());
+    h.step();
+    assert!(film(&h).len() > 3, "{:?}", film(&h));
+    assert!(widget(&h, "map:focusClear").is_none());
+    // and so does Fit All after narrowing again by command
+    let r = h.request("engine.execute", json!({"command": "map.focus", "params": {"ids": [ids[0].0]}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert_eq!(film(&h), vec![format!("film:{}", ids[0].0)]);
+    // moving the map through the UI state keeps it narrowed
+    let r = h.request("ui.set", json!({"map": {"zoom": 16.0}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert_eq!(film(&h), vec![format!("film:{}", ids[0].0)]);
+    let r = h.request("engine.execute", json!({"command": "map.fitAll"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(film(&h).len() > 3);
+    let bad = h.request("engine.execute", json!({"command": "map.focus", "params": {"ids": "all"}}), T);
+    assert_ne!(bad["ok"], true, "{bad}");
+}

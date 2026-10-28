@@ -16,9 +16,10 @@ a few hundred photos along one structure.
   otherwise the folder all the site's photos share (`Bridge 1234/Span 1` and `Bridge 1234/Span 2`
   → "Bridge 1234"). A click zooms in to the site.
 - **Clusters:** closer in, pins closer than about 40 points merge into a circle with a count (one
-  per pier or span). A click zooms in until they separate; photos taken at one spot stay a
-  cluster at the deepest zoom, and a click then selects them all. Closer still, every photo has
-  its own pin.
+  per pier or span). A click zooms in until they separate, selects their photos and **narrows the
+  filmstrip to them** ("Filmstrip: 8 photos here"; **Show All** in the status line, Fit All, or a
+  click on a pin elsewhere brings every photo back). Closer still, every photo has its own pin.
+- **Zoom** goes to 22 (about 4 cm a point); past a map's deepest tiles they are scaled up.
 - **Hover** a pin for its thumbnail, file name and capture time.
 - **Heading:** a photo that recorded which way the camera pointed gets a 60° view cone: phones and
   tablets write `GPSImgDirection` (EXIF or XMP; true or magnetic north), DJI drones the gimbal's
@@ -116,6 +117,7 @@ Without `path` the text comes back in the result (`text`) instead.
 |---|---|---|
 | `view.map` | `{photo?}` | Open the Map view; returns `{photos, located}`. With `photo`: select it and centre on it at the closest photo zoom instead of fitting every pin |
 | `map.fitAll` | | Fit every pin on screen |
+| `map.focus` | `{ids}` | Narrow the filmstrip to these photos and select them (`[]`: all again) |
 | `map.toggleTrack` | `{on?}` | The track line |
 | `map.setTileSource` | `{source: off\|street\|imagery}` | Tiles (also Settings ▸ Map) |
 | `map.clearCache` | | Delete the cached tiles (background) |
