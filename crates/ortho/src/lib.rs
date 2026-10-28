@@ -15,13 +15,18 @@
 
 pub mod crs;
 pub mod georef;
+pub mod pyramid;
 pub mod raster;
 pub mod tm;
 
 #[cfg(any(test, feature = "testdata"))]
 pub mod testdata;
 
+#[cfg(test)]
+mod tests;
+
 pub use crs::Crs;
+pub use pyramid::{Built, Info, build, inspect, read_tile, tile_file};
 
 /// Why an orthomosaic can't be read or tiled.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
