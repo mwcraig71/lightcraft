@@ -139,6 +139,9 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         }
         attribution = Some(source.attribution.to_string());
     }
+    // drone orthomosaics above the base map, below the pins (also with tiles off: offline imagery)
+    super::ortho::note_map_rect(ui.ctx(), rect);
+    super::ortho::draw(app, ui, &vp);
 
     // an album is the user's name for the job; otherwise the folder its photos share
     let title = crate::i18n::source_title(&app.session);
@@ -194,6 +197,7 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         custom_not_set_up(ui, rect, &e);
     }
     super::markers::card(app, ui, rect);
+    super::ortho::layers(app, ui, &mut vp);
     if tiles == MapTiles::Ask {
         ask(app, ui, rect);
     } else if pins.pins.is_empty() {

@@ -59,6 +59,7 @@ pub mod merge;
 mod model_download;
 pub mod open_path;
 pub mod originals;
+pub mod orthomosaic;
 mod pdf;
 pub mod preset_import;
 pub mod preset_luminar;
@@ -385,6 +386,8 @@ pub struct Session {
     /// Background tasks in flight (imports, exports, preview builds…), for the activity stack and
     /// `activity.list` / `activity.cancel`.
     pub activity: activity::Activity,
+    /// Drone orthomosaics on the Map view (`orthomosaic.*`), read from the library's folder.
+    pub orthomosaics: orthomosaic::Orthomosaics,
     /// The last (or running) slideshow export (`slideshow.export`).
     pub slideshow_export: Option<std::sync::Arc<slideshow_export::ExportRun>>,
     /// The last (or running) Build Previews.
@@ -526,6 +529,7 @@ impl Session {
             activity: Default::default(),
             preview_build: None,
             slideshow_export: None,
+            orthomosaics: Default::default(),
             import_defaults: import::ImportDefaults::default(),
             cache_mb: 0,
             slideshow: slideshow::PlaybackSettings::default(),

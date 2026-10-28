@@ -43,6 +43,7 @@ lightcraft-heif = { path = "crates/heif" }
 lightcraft-segment = { path = "crates/segment" }
 lightcraft-geocode = { path = "crates/geocode" }
 lightcraft-tiles = { path = "crates/tiles" }
+lightcraft-ortho = { path = "crates/ortho" }
 lightcraft-slideshow = { path = "crates/slideshow" }
 lightcraft-testkit = { path = "crates/testkit" }
 

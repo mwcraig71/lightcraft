@@ -32,6 +32,7 @@ miniz_oxide = { workspace = true }
 lightcraft-merge = { workspace = true }
 lightcraft-geocode = { workspace = true }
 lightcraft-slideshow = { workspace = true }
+lightcraft-ortho = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -64,3 +65,5 @@ jxl-oxide = { workspace = true }
 lightcraft-heif = { workspace = true, features = ["testdata"] }
 libc = { workspace = true }
 lightcraft-tiff = { workspace = true }
+# synthetic GeoTIFFs for the orthomosaic tests
+lightcraft-ortho = { workspace = true, features = ["testdata"] }

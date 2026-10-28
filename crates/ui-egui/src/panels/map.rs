@@ -15,10 +15,12 @@
 //! - `view`: the view around it (status line, filmstrip, prompts).
 //! - `mini`: the Info panel's mini-map of the active photo's place.
 //! - `markers`: the user's markers with attached files, and their card.
+//! - `ortho`: drone orthomosaics drawn on the map, the Layers panel.
 
 mod custom;
 mod markers;
 mod mini;
+mod ortho;
 mod pins;
 mod settings;
 mod view;
@@ -159,6 +161,9 @@ pub const DEFAULT_CACHE_MB: u32 = 500;
 /// `view.map` and the `map.*` commands; `None` for any other id.
 pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
     if let Some(r) = markers::run(app, id, p) {
+        return Some(r);
+    }
+    if let Some(r) = ortho::run(app, id, p) {
         return Some(r);
     }
     Some(match id {
