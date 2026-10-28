@@ -129,8 +129,18 @@ impl Textures {
 type SharedTextures = Arc<Mutex<Textures>>;
 
 /// Draw the tiles of `source` covering `vp`. Returns whether any are still loading.
+///
+/// Several maps may draw in one pass (the Map view and the Info panel's mini-map): the provider's
+/// frame is closed once, as the first of them draws in the next pass, so one map's tiles don't
+/// cancel the other's.
 pub fn draw_tiles(ui: &egui::Ui, vp: &Viewport, provider: &dyn TileProvider, source: &'static TileSource) -> bool {
     let ctx = ui.ctx();
+    let pass = ctx.cumulative_pass_nr();
+    let drawn = egui::Id::unique("lc-map-tiles-pass");
+    if ctx.data(|d| d.get_temp::<u64>(drawn)).is_some_and(|last| last != pass) {
+        provider.end_frame();
+    }
+    ctx.data_mut(|d| d.insert_temp(drawn, pass));
     let textures: SharedTextures = ctx.data_mut(|d| d.get_temp_mut_or_default::<SharedTextures>(egui::Id::unique("lc-map-textures")).clone());
     let mut textures = textures.lock().unwrap_or_else(PoisonError::into_inner);
     let painter = ui.painter_at(vp.rect);
@@ -167,7 +177,6 @@ pub fn draw_tiles(ui: &egui::Ui, vp: &Viewport, provider: &dyn TileProvider, sou
             }
         }
     }
-    provider.end_frame();
     loading
 }
 
@@ -230,22 +239,28 @@ pub fn scale_bar(m_per_pt: f64, max_w: f32) -> Option<(f64, f32)> {
 
 /// The attribution bottom-right (always visible while the source's tiles are drawn).
 pub fn draw_attribution(ui: &egui::Ui, vp: &Viewport, text: &str) {
+    draw_attribution_as(ui, vp, text, 10.5, "map:attribution");
+}
+
+/// [`draw_attribution`] at `size` points, registered as `id`; returns its rect.
+pub(crate) fn draw_attribution_as(ui: &egui::Ui, vp: &Viewport, text: &str, size: f32, id: &str) -> Rect {
     let t = Tokens::get(ui.ctx());
     let painter = ui.painter_at(vp.rect);
-    let galley = painter.layout_no_wrap(text.to_string(), t.font(10.5), Color32::from_gray(30));
+    let galley = painter.layout_no_wrap(text.to_string(), t.font(size), Color32::from_gray(30));
     let r = Rect::from_min_size(vp.rect.max - galley.size() - vec2(10.0, 4.0), galley.size() + vec2(8.0, 2.0));
     painter.rect_filled(r, 2.0, Color32::from_white_alpha(200));
     painter.galley(r.min + vec2(4.0, 1.0), galley, Color32::from_gray(30));
-    crate::widgets::register_geometry(ui.ctx(), "map:attribution", r);
+    crate::widgets::register_geometry(ui.ctx(), id, r);
+    r
 }
 
 /// A view cone: `CONE_ANGLE` wide, `CONE_LEN` points long.
-const CONE: Color32 = Color32::from_rgb(255, 196, 64);
+pub(crate) const CONE: Color32 = Color32::from_rgb(255, 196, 64);
 const CONE_ANGLE: f32 = 60.0;
 const CONE_LEN: f32 = 38.0;
 
 /// The camera's field of view from `at`, pointing `degrees` clockwise from north (up).
-fn draw_cone(painter: &egui::Painter, at: Pos2, degrees: f32, color: Color32) {
+pub(crate) fn draw_cone(painter: &egui::Painter, at: Pos2, degrees: f32, color: Color32) {
     let steps = 10;
     let mut pts = vec![at];
     for i in 0..=steps {
@@ -292,15 +307,20 @@ pub fn draw_pins(ui: &egui::Ui, vp: &Viewport, pins: &[Pin], clusters: &[Cluster
         if let Some(name) = &c.site {
             draw_site(ui, &painter, pos, name, c.members.len(), hot);
         } else if c.members.len() == 1 {
-            let r = if hot { PIN_R + 2.0 } else { PIN_R };
-            painter.circle_filled(pos + vec2(0.0, 1.0), r + 1.5, Color32::from_black_alpha(80));
-            painter.circle(pos, r, if hot { t.accent } else { PIN }, Stroke::new(if hot { 2.5 } else { 1.5 }, RING));
+            draw_pin(&painter, pos, hot, t.accent);
         } else {
             painter.circle_filled(pos + vec2(0.0, 1.0), CLUSTER_R + 1.5, Color32::from_black_alpha(80));
             painter.circle(pos, CLUSTER_R, if hot { t.accent } else { Color32::from_rgb(40, 44, 52) }, Stroke::new(2.0, RING));
             painter.text(pos, Align2::CENTER_CENTER, c.members.len().to_string(), t.semibold(11.5), Color32::WHITE);
         }
     }
+}
+
+/// One photo's pin at `pos`, larger and in `accent` when highlighted.
+pub(crate) fn draw_pin(painter: &egui::Painter, pos: Pos2, hot: bool, accent: Color32) {
+    let r = if hot { PIN_R + 2.0 } else { PIN_R };
+    painter.circle_filled(pos + vec2(0.0, 1.0), r + 1.5, Color32::from_black_alpha(80));
+    painter.circle(pos, r, if hot { accent } else { PIN }, Stroke::new(if hot { 2.5 } else { 1.5 }, RING));
 }
 
 /// "1 photo" / "3 photos".

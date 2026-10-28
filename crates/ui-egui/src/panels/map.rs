@@ -11,18 +11,22 @@
 //! - `pins`: which photos have a pin, their order, sites and screen-space clustering.
 //! - `widget`: the slippy map (pan, zoom, tiles, scale bar, attribution, controls).
 //! - `view`: the view around it (status line, filmstrip, prompts).
+//! - `mini`: the Info panel's mini-map of the active photo's place.
 
+mod mini;
 mod pins;
 mod settings;
 mod view;
 mod widget;
 
+use lightcraft_catalog::PhotoId;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::state::ViewMode;
 
+pub use mini::{MINI_MAP_H, mini_map};
 pub use pins::{Pin, cluster};
 pub use settings::settings_tab;
 pub use view::{show, tiles_loading};
@@ -115,6 +119,7 @@ pub const DEFAULT_CACHE_MB: u32 = 500;
 /// `view.map` and the `map.*` commands; `None` for any other id.
 pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
     Some(match id {
+        "view.map" if p.get("photo").is_some_and(|v| !v.is_null()) => open_at_photo(app, p.get("photo")),
         "view.map" => {
             app.ui.view = ViewMode::Map;
             app.ui.map.fit_pending = true;
@@ -146,6 +151,32 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         "map.clearCache" => clear_cache(app),
         _ => return None,
     })
+}
+
+/// `view.map {photo}`: select the photo and open the Map view centred on it at [`PHOTO_ZOOM`]
+/// (the Info panel's mini-map), instead of fitting every pin.
+fn open_at_photo(app: &mut LightcraftApp, photo: Option<&Value>) -> Result<Value, String> {
+    let Some(id) = photo.and_then(Value::as_u64).map(PhotoId) else {
+        return Err(format!("view.map: `photo` must be a photo id, not {}", photo.unwrap_or(&Value::Null)));
+    };
+    let Some(p) = app.session.catalog.photo(id) else {
+        return Err(format!("view.map: no such photo {}", id.0));
+    };
+    let Some((lat, lon)) = p.meta.gps.filter(|g| pins::usable(*g)) else {
+        return Err(format!("view.map: photo {} has no location", id.0));
+    };
+    app.run("library.select", json!({"ids": [id.0], "mode": "replace"}))?;
+    app.ui.view = ViewMode::Map;
+    let pins = pins::collect(app);
+    let (x, y) = lightcraft_tiles::mercator::to_world(lat, lon);
+    let m = &mut app.ui.map;
+    m.center = [x, y];
+    m.zoom = PHOTO_ZOOM;
+    // these pins count as fitted, so the view doesn't fit them all on its first frame
+    m.fit_pending = false;
+    m.fitted = Some(pins.key);
+    m.followed = Some(id.0);
+    Ok(json!({"photos": pins.total, "located": pins.pins.len(), "photo": id.0}))
 }
 
 /// Delete the cached tiles on a background task (a large cache takes a while).

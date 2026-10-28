@@ -39,7 +39,7 @@ pub struct Pins {
 }
 
 /// A usable latitude/longitude (finite, in range, and not the 0, 0 some cameras write for "no fix").
-fn usable((lat, lon): (f64, f64)) -> bool {
+pub(crate) fn usable((lat, lon): (f64, f64)) -> bool {
     lat.is_finite() && lon.is_finite() && lat.abs() <= 90.0 && lon.abs() <= 180.0 && !(lat == 0.0 && lon == 0.0)
 }
 

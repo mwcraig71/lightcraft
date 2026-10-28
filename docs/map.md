@@ -28,6 +28,11 @@ a few hundred photos along one structure.
   from Disk** reads them for photos imported before LightCraft kept them.
 - The status line counts the photos and those with a location. **"N without location"** selects
   the photos that have none.
+- **Info panel mini-map:** under the GPS field, a photo with a location gets a small map of its
+  place (the Map view's closest photo zoom), with its pin and view cone. It doesn't pan or zoom;
+  a click opens the Map view centred on that photo (`view.map {"photo": id}`), with the photo
+  selected. It draws tiles only once they are turned on, with their attribution, and never asks
+  for them itself. **Show on Map** still opens the place in OpenStreetMap in the browser.
 
 ## Photos without a location
 
@@ -69,7 +74,7 @@ go first) and has **Clear Cache** (runs in the activity stack).
 
 | Command | Params | |
 |---|---|---|
-| `view.map` | | Open the Map view; returns `{photos, located}` |
+| `view.map` | `{photo?}` | Open the Map view; returns `{photos, located}`. With `photo`: select it and centre on it at the closest photo zoom instead of fitting every pin |
 | `map.fitAll` | | Fit every pin on screen |
 | `map.toggleTrack` | `{on?}` | The track line |
 | `map.setTileSource` | `{source: off\|street\|imagery}` | Tiles (also Settings ▸ Map) |

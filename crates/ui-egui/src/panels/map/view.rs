@@ -20,6 +20,24 @@ pub fn tiles_loading(ctx: &egui::Context) -> bool {
     let at = ctx.data(|d| d.get_temp::<u64>(egui::Id::unique(LOADING)));
     at.is_some_and(|f| f.saturating_add(1) >= ctx.cumulative_frame_nr())
 }
+/// Some tiles drawn this frame are still loading: look again soon (and `ui.settle` waits).
+pub(super) fn note_loading(ctx: &egui::Context) {
+    ctx.request_repaint_after(std::time::Duration::from_millis(120));
+    let frame = ctx.cumulative_frame_nr();
+    ctx.data_mut(|d| d.insert_temp(egui::Id::unique(LOADING), frame));
+}
+
+/// Settings ▸ Map ▸ Tile cache, applied to the provider when it changes.
+pub(super) fn apply_cache_limit(app: &LightcraftApp, ctx: &egui::Context) {
+    let Some(p) = app.services.map_tiles.as_deref() else { return };
+    let mb = app.ui.settings.map_cache_mb.max(10);
+    let key = egui::Id::unique("lc-map-cache-limit");
+    if ctx.data(|d| d.get_temp::<u32>(key)) != Some(mb) {
+        p.set_cache_limit(u64::from(mb) * 1_000_000);
+        ctx.data_mut(|d| d.insert_temp(key, mb));
+    }
+}
+
 /// Pins kept clear of the map's edge when fitting.
 const FIT_MARGIN: f64 = 48.0;
 
@@ -89,20 +107,10 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     let provider = app.services.map_tiles.clone();
     widget::draw_background(ui, &vp);
     let mut attribution = None;
-    if let Some(p) = provider.as_deref() {
-        // Settings ▸ Map ▸ Tile cache, applied when it changes
-        let mb = app.ui.settings.map_cache_mb.max(10);
-        let key = egui::Id::unique("lc-map-cache-limit");
-        if ui.ctx().data(|d| d.get_temp::<u32>(key)) != Some(mb) {
-            p.set_cache_limit(u64::from(mb) * 1_000_000);
-            ui.ctx().data_mut(|d| d.insert_temp(key, mb));
-        }
-    }
+    apply_cache_limit(app, ui.ctx());
     if let (Some(source), Some(provider)) = (tiles.source(), provider.as_deref()) {
         if widget::draw_tiles(ui, &vp, provider, source) {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
-            let frame = ui.ctx().cumulative_frame_nr();
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique(LOADING), frame));
+            note_loading(ui.ctx());
         }
         attribution = Some(source.attribution);
     }

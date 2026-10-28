@@ -247,3 +247,106 @@ fn photos_with_a_heading_get_a_view_cone() {
     h.step();
     assert!(h.painted_text().iter().any(|t| t.contains("Heading 90° (magnetic)")), "{:?}", h.painted_text());
 }
+
+/// The demo with the Info panel open on `active`, tall enough for the GPS field to be on screen.
+fn info_on(tiles: &Arc<FakeTiles>, active: impl Fn(&[PhotoId]) -> PhotoId) -> (Headless, Vec<PhotoId>) {
+    let services = Services { png: None, map_tiles: Some(tiles.clone()), ..Default::default() };
+    let app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
+    let mut h = Headless::new(app, [1400.0, 2000.0], 1.0);
+    h.settle(T);
+    let ids = bridge(&mut h);
+    let r = h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [active(&ids).0]}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.app.ui.right = crate::state::RightPanel::Info;
+    h.app.ui.view = ViewMode::PhotoGrid;
+    h.step();
+    h.step();
+    (h, ids)
+}
+
+#[test]
+fn the_info_panel_has_a_mini_map_for_a_located_photo() {
+    let tiles = Arc::new(FakeTiles::default());
+    let (mut h, ids) = info_on(&tiles, |ids| ids[0]);
+    assert_eq!(h.app.ui.view, ViewMode::PhotoGrid);
+    let mini = widget(&h, "info:miniMap").expect("a mini-map under the GPS field");
+    let panel = widget(&h, "panel:right_panel").expect("the right panel");
+    assert!((mini.height() - crate::panels::map::MINI_MAP_H).abs() < 0.5, "{mini:?}");
+    assert!(mini.left() >= panel.left() && mini.right() <= panel.right() + 0.5, "{mini:?} in {panel:?}");
+    // tiles not chosen yet: none drawn, and the mini-map doesn't ask
+    assert_eq!(tiles.requests(), 0);
+    assert!(widget(&h, "map:ask").is_none());
+    assert!(widget(&h, "info:miniMapAttribution").is_none());
+    // a photo without a location has none
+    let r = h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [ids[3].0]}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert_eq!(h.app.session.active(), Some(ids[3]));
+    assert!(widget(&h, "info:miniMap").is_none(), "no location, no mini-map");
+}
+
+#[test]
+fn the_mini_map_draws_tiles_only_when_they_are_on() {
+    let tiles = Arc::new(FakeTiles::default());
+    let (mut h, _) = info_on(&tiles, |ids| ids[0]);
+    let r = h.request("engine.execute", json!({"command": "map.setTileSource", "params": {"source": "off"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(widget(&h, "info:miniMap").is_some());
+    assert_eq!(tiles.requests(), 0, "tiles off: no requests");
+    let r = h.request("engine.execute", json!({"command": "map.setTileSource", "params": {"source": "street"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(tiles.requests() > 0, "tiles on: the mini-map draws them");
+    let mini = widget(&h, "info:miniMap").unwrap();
+    let a = widget(&h, "info:miniMapAttribution").expect("the attribution while tiles are drawn");
+    assert!(mini.contains(a.center()), "{a:?} in {mini:?}");
+    assert!(h.painted_text().iter().any(|t| t.contains("© OpenStreetMap contributors")));
+}
+
+#[test]
+fn clicking_the_mini_map_opens_the_map_view_on_the_photo() {
+    let tiles = Arc::new(FakeTiles::default());
+    let (mut h, ids) = info_on(&tiles, |ids| ids[1]);
+    // several photos selected, Info showing the active one (Target Photo)
+    h.app.ui.settings.info_selected_photos = false;
+    let r = h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [ids[0].0, ids[1].0], "active": ids[1].0}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    let mini = widget(&h, "info:miniMap").expect("mini-map");
+    click_at(&mut h, mini.center());
+    assert_eq!(h.app.ui.view, ViewMode::Map);
+    for _ in 0..4 {
+        h.step();
+    }
+    let want = lightcraft_tiles::mercator::to_world(40.0, -75.0 + 0.0003);
+    let m = &h.app.ui.map;
+    assert_eq!(m.zoom, crate::panels::map::PHOTO_ZOOM, "not fitted to all the pins");
+    assert!((m.center[0] - want.0).abs() < 1e-9 && (m.center[1] - want.1).abs() < 1e-9, "{:?} vs {want:?}", m.center);
+    assert_eq!(h.app.session.active(), Some(ids[1]));
+    assert_eq!(h.app.session.selection.ids, vec![ids[1]]);
+    let view = widget(&h, "map:view").unwrap();
+    // (at this zoom the bridge's photos, ~25 m apart, are one cluster around it)
+    let near = pins(&h).iter().filter_map(|w| widget(&h, w)).map(|r| r.center().distance(view.center())).fold(f32::MAX, f32::min);
+    assert!(near < 30.0, "its pin or cluster in the middle: {:?}", pins(&h));
+}
+
+#[test]
+fn view_map_photo_param_checks_the_photo() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    let ids = bridge(&mut h);
+    for (photo, why) in [(json!(ids[3].0), "has no location"), (json!(999_999), "no such photo"), (json!("x"), "must be a photo id")] {
+        let r = h.request("engine.execute", json!({"command": "view.map", "params": {"photo": photo}}), T);
+        assert_ne!(r["ok"], true, "{r}");
+        assert!(r.to_string().contains(why), "{r}");
+    }
+    let r = h.request("engine.execute", json!({"command": "view.map", "params": {"photo": ids[2].0}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["result"]["photo"], ids[2].0, "{r}");
+    assert_eq!(h.app.ui.map.zoom, crate::panels::map::PHOTO_ZOOM);
+}

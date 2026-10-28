@@ -157,6 +157,8 @@ pub(super) fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
         // (one photo's place: not shown while the selected photos' places differ)
         if let Some((la, lo)) = m.gps.filter(|_| !gps_mixed) {
+            // (the fields' width: a long line below may push the panel's content wider)
+            let width = ui.available_width();
             let pretty = format!("{:.5}° {}, {:.5}° {}", la.abs(), if la >= 0.0 { "N" } else { "S" }, lo.abs(), if lo >= 0.0 { "E" } else { "W" });
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(pretty).size(11.0).color(t.text_dim));
@@ -170,6 +172,10 @@ pub(super) fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     }
                 }
             });
+            // the active photo's place, its pin and view cone; a click opens the Map view there
+            ui.add_space(4.0);
+            crate::panels::map::mini_map(app, ui, id, width);
+            ui.add_space(6.0);
             if text_button(ui, "fillLocation", crate::i18n::tr("Fill Location"), false)
                 .on_hover_text(format!(
                     "{}\n{}",
