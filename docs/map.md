@@ -41,6 +41,49 @@ a few hundred photos along one structure.
   selected. It draws tiles only once they are turned on, with their attribution, and never asks
   for them itself. **Show on Map** still opens the place in OpenStreetMap in the browser.
 
+## Drone orthomosaics (GeoTIFF overlays)
+
+Public imagery is too coarse to inspect a bridge. A drone survey exported as an **orthomosaic
+GeoTIFF** (DJI Terra, Pix4D, WebODM / ODM, Agisoft Metashape) draws over the map at its own
+detail, centimetres a pixel, offline.
+
+- **Add:** **Layers ▸ Add Orthomosaic…** on the map (top-left; also the command `map.addOrthomosaic`),
+  then pick the `.tif`. The Map view opens fitted to it. The file is used where it is (they are
+  large) and never changed.
+- **Its map tiles are built in the background**, shown in the activity stack ("Building
+  orthomosaic map tiles", with ✕ to stop it; **Rebuild** in the Layers panel starts it again).
+  The footprint's outline is on the map at once, the imagery as the tiles are made. A 4000 ×
+  4000 px orthomosaic takes a few seconds.
+- **Layers** (top-left on the map): each orthomosaic with a checkbox to show or hide it, its
+  resolution or build state, opacity (25–100 %), **Fit** (zoom to it), **Remove** (takes it off
+  the map and deletes its tiles; the GeoTIFF stays).
+- It draws above the base map and below the pins, also with map tiles **Off**. Zoomed out, a thin
+  blue outline marks its footprint (with its name when small); the Info panel's mini-map draws
+  it too.
+- **Where:** the list is kept with the library, in `<library>/Orthomosaics/orthomosaics.json`,
+  and the tiles in `<library>/Orthomosaics/<id>/<z>/<x>/<y>.jpg` (opaque) or `.png` (with
+  transparent parts). The GeoTIFF's size and modification time are recorded: a changed file builds
+  its tiles again on the next open; a moved or deleted one is marked "file missing" (the tiles made
+  before still draw).
+
+**What is read.** Classic TIFF or BigTIFF, tiled or in strips, uncompressed, LZW, Deflate or JPEG,
+8 or 16 bits, grey, RGB or RGBA; transparency from the alpha band or GDAL's no-data value.
+Placement from `ModelPixelScale` + `ModelTiepoint` or a `ModelTransformation` (rotated or skewed
+grids too). Coordinate systems: WGS 84 latitude / longitude (EPSG:4326), Web Mercator (3857), WGS 84
+UTM zones (32601–32660 north, 32701–32760 south) and NAD83 UTM zones (26901–26923, drawn as WGS 84:
+in North America the two differ by 1–2 m). Anything else (State Plane, a local grid, a custom
+WKT) is refused with the EPSG code it has: export the orthomosaic in WGS 84 or a UTM zone. Not
+read: band-per-plane files, floating-point or signed samples (elevation models), strips over 64 MB
+(export tiled: GDAL `-co TILED=YES`), and areas needing more than 4 million map tiles (about
+15 km × 15 km at 3 cm).
+
+**How the tiles are made.** Nothing reads the whole raster: an orthomosaic can be several GB. The
+deepest zoom is the one whose map pixel is closest to the orthomosaic's (3 cm → zoom 22); each of
+its tile pixels is mapped back (Web Mercator → latitude / longitude → the GeoTIFF's CRS → a source
+pixel) and sampled bilinearly from the source tiles or strips it falls in, decoded on demand and
+cached per worker thread. Coarser zooms, down to 12, are made from the four tiles under each.
+Internal overviews are recognised but not needed: every zoom comes from the full resolution.
+
 ## Photos without a location
 
 Phones, tablets and most drones record GPS. A DSLR usually doesn't: record a GPX track on a phone
@@ -121,6 +164,14 @@ Without `path` the text comes back in the result (`text`) instead.
 | `map.toggleTrack` | `{on?}` | The track line |
 | `map.setTileSource` | `{source: off\|street\|imagery}` | Tiles (also Settings ▸ Map) |
 | `map.clearCache` | | Delete the cached tiles (background) |
+| `orthomosaic.add` | `{path, name?}` | Add a GeoTIFF orthomosaic; returns `{id, name, crs, epsg, resolutionCm, bounds: {north, south, east, west}, corners, minZoom, maxZoom, status, …}` and builds its tiles (activity `orthomosaic`) |
+| `orthomosaic.list` | | Every orthomosaic with `visible`, `opacity`, `status` (`{state: building, done, total}`, `ready` or `failed` with `error`), `progress`, `missing` |
+| `orthomosaic.set` | `{id, visible?, opacity?: 0..1, name?}` | Show / hide, opacity, rename |
+| `orthomosaic.remove` | `{id}` | Off the map, tiles deleted (never the GeoTIFF) |
+| `orthomosaic.rebuild` | `{id}` | Build its tiles again |
+| `map.addOrthomosaic` | `{path?, name?}` | `orthomosaic.add` with a file dialog (Layers ▸ Add Orthomosaic…), then the Map view fitted to it |
+| `map.fitOrthomosaic` | `{id, zoom?}` | Open the Map view fitted to an orthomosaic (`zoom`: at that zoom on its middle) |
+| `map.layers` | `{open?}` | The Layers panel |
 | `photo.exportLocations` | `{path?, format?: kml\|geojson, ids?, track?, name?}` | Photo locations as KML or GeoJSON; returns `{written, skipped, format, track, path \| text}` |
 | `file.exportLocations` | `{path?, ids?}` | The same with a save dialog (File ▸ Export Photo Locations…) |
 
@@ -135,6 +186,9 @@ All go through the control channel and MCP like any UI command, e.g. a headless 
 
 ## Code
 
+- `crates/ortho` (`lightcraft-ortho`, layer 2): GeoTIFF georeferencing, the CRSs (transverse
+  Mercator by Krüger's series), windowed reads, the tile pyramid. `crates/engine/src/orthomosaic.rs`:
+  the library's list and the build jobs; `crates/ui-egui/src/panels/map/ortho.rs`: drawing, Layers.
 - `crates/tiles` (`lightcraft-tiles`, layer 2): Web Mercator math, the tile sources, the disk
   cache and the fetch workers (`TilePool`, the native `TileProvider`). No UI.
 - `crates/engine/src/cmd/locations.rs`: `photo.exportLocations` (KML / GeoJSON; a point's fields

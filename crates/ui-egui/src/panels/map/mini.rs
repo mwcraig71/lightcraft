@@ -42,6 +42,7 @@ pub fn mini_map(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, width: 
         }
         attribution = Some(source.attribution);
     }
+    super::ortho::draw_mini(app, ui, &vp);
     let painter = ui.painter_at(rect);
     let at = vp.screen_of(world);
     if let Some(r) = accuracy.and_then(|e| widget::accuracy_radius(e, lat, vp.zoom)) {

@@ -12,8 +12,10 @@
 //! - `widget`: the slippy map (pan, zoom, tiles, scale bar, attribution, controls).
 //! - `view`: the view around it (status line, filmstrip, prompts).
 //! - `mini`: the Info panel's mini-map of the active photo's place.
+//! - `ortho`: drone orthomosaics drawn on the map, the Layers panel.
 
 mod mini;
+mod ortho;
 mod pins;
 mod settings;
 mod view;
@@ -123,6 +125,9 @@ pub const DEFAULT_CACHE_MB: u32 = 500;
 
 /// `view.map` and the `map.*` commands; `None` for any other id.
 pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
+    if let Some(r) = ortho::run(app, id, p) {
+        return Some(r);
+    }
     Some(match id {
         "view.map" if p.get("photo").is_some_and(|v| !v.is_null()) => open_at_photo(app, p.get("photo")),
         "view.map" => {

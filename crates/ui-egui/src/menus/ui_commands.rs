@@ -77,6 +77,11 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("map.toggleTrack", "Map Track Line", None, ""),
     ("map.setTileSource", "Map Tiles", None, ""),
     ("map.clearCache", "Clear Map Tile Cache", None, ""),
+    // {path?, name?}: orthomosaic.add with a file dialog (GeoTIFF; the map's Layers panel), then the Map view fitted to it
+    ("map.addOrthomosaic", "Add Orthomosaic…", None, ""),
+    // {id, zoom?}
+    ("map.fitOrthomosaic", "Zoom to Orthomosaic", None, ""),
+    ("map.layers", "Map Layers", None, ""),
     ("view.person", "Show Person", None, ""),
     ("view.faceBoxes", "Face Boxes", None, "View"),
     ("view.focusPoint", "Focus Point", Some("Alt+F"), "View"),
