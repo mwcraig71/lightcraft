@@ -11,9 +11,14 @@ a few hundred photos along one structure.
 - **Click a pin** to select its photo (Shift: a range, Cmd/Ctrl: add or remove, as in the grid).
   **Double-click** opens it in Detail. Selecting a photo in the filmstrip brings its pin on screen,
   highlighted.
-- **Clusters:** pins closer than about 40 points merge into a circle with a count. A click zooms in
-  until they separate; photos taken at one spot stay a cluster at the deepest zoom, and a click
-  then selects them all.
+- **Zoomed far out**, each site (photos taken close together, such as along one bridge) is one
+  dot labelled with its name and photo count. The name is the album's when an album is shown,
+  otherwise the folder all the site's photos share (`Bridge 1234/Span 1` and `Bridge 1234/Span 2`
+  → "Bridge 1234"). A click zooms in to the site.
+- **Clusters:** closer in, pins closer than about 40 points merge into a circle with a count (one
+  per pier or span). A click zooms in until they separate; photos taken at one spot stay a
+  cluster at the deepest zoom, and a click then selects them all. Closer still, every photo has
+  its own pin.
 - **Hover** a pin for its thumbnail, file name and capture time.
 - **Heading:** a photo that recorded which way the camera pointed gets a 60° view cone: phones and
   tablets write `GPSImgDirection` (EXIF or XMP; true or magnetic north), DJI drones the gimbal's

@@ -16,10 +16,12 @@ use crate::theme::Tokens;
 /// Textures kept for tiles (each 256 KB of video memory).
 const TEXTURES: usize = 384;
 /// Pins closer than this (points) draw as one cluster.
-pub const CLUSTER_RADIUS: f64 = 24.0;
+pub const CLUSTER_RADIUS: f64 = 40.0;
 /// Pin radius (points).
 pub const PIN_R: f32 = 6.0;
 const CLUSTER_R: f32 = 13.0;
+/// A site's dot far out.
+const SITE_R: f32 = 8.0;
 /// How far up the pyramid a loaded tile may stand in for one still loading.
 const FALLBACK_LEVELS: u8 = 6;
 
@@ -267,7 +269,7 @@ pub fn draw_pins(ui: &egui::Ui, vp: &Viewport, pins: &[Pin], clusters: &[Cluster
         painter.add(egui::Shape::line(pts, Stroke::new(1.8, Color32::from_rgb(255, 196, 64))));
     }
     // view cones under the pins: which way each single photo's camera pointed
-    for c in clusters {
+    for c in clusters.iter().filter(|c| c.site.is_none()) {
         if let [only] = c.members.as_slice()
             && let Some(p) = pins.get(*only)
             && let Some(d) = p.direction
@@ -287,7 +289,9 @@ pub fn draw_pins(ui: &egui::Ui, vp: &Viewport, pins: &[Pin], clusters: &[Cluster
     for c in order {
         let pos = vp.screen_of(c.world);
         let hot = c.members.iter().any(|i| pins.get(*i).is_some_and(|p| selected(p.id.0)));
-        if c.members.len() == 1 {
+        if let Some(name) = &c.site {
+            draw_site(ui, &painter, pos, name, c.members.len(), hot);
+        } else if c.members.len() == 1 {
             let r = if hot { PIN_R + 2.0 } else { PIN_R };
             painter.circle_filled(pos + vec2(0.0, 1.0), r + 1.5, Color32::from_black_alpha(80));
             painter.circle(pos, r, if hot { t.accent } else { PIN }, Stroke::new(if hot { 2.5 } else { 1.5 }, RING));
@@ -299,13 +303,41 @@ pub fn draw_pins(ui: &egui::Ui, vp: &Viewport, pins: &[Pin], clusters: &[Cluster
     }
 }
 
+/// "1 photo" / "3 photos".
+pub fn photo_count(n: usize) -> String {
+    crate::i18n::tr_format!("{n} {noun}", n = n, noun = crate::i18n::tr(if n == 1 { "photo" } else { "photos" }))
+}
+
+/// A site far out: a dot, and beside it the name over the count on a dark label.
+fn draw_site(ui: &egui::Ui, painter: &egui::Painter, pos: Pos2, name: &str, n: usize, hot: bool) {
+    let t = Tokens::get(ui.ctx());
+    painter.circle_filled(pos + vec2(0.0, 1.0), SITE_R + 1.5, Color32::from_black_alpha(90));
+    painter.circle(pos, SITE_R, if hot { t.accent } else { PIN }, Stroke::new(2.5, RING));
+    let title = painter.layout_no_wrap(name.to_string(), t.semibold(12.5), Color32::WHITE);
+    let count = painter.layout_no_wrap(photo_count(n), t.font(11.0), Color32::from_gray(210));
+    let w = title.size().x.max(count.size().x) + 14.0;
+    let h = title.size().y + count.size().y + 8.0;
+    let label = Rect::from_min_size(pos2(pos.x + SITE_R + 6.0, pos.y - h / 2.0), vec2(w, h));
+    painter.rect_filled(label, 4.0, Color32::from_black_alpha(170));
+    let below = label.top() + 4.0 + title.size().y;
+    painter.galley(pos2(label.left() + 7.0, label.top() + 4.0), title, Color32::WHITE);
+    painter.galley(pos2(label.left() + 7.0, below), count, Color32::WHITE);
+    crate::widgets::register_geometry(ui.ctx(), format!("mapSiteLabel:{name}"), label);
+}
+
 /// The cluster under `p`, if any (nearest first).
 pub fn hit(vp: &Viewport, clusters: &[Cluster], p: Pos2) -> Option<usize> {
     clusters
         .iter()
         .enumerate()
         .map(|(i, c)| {
-            let r = if c.members.len() == 1 { PIN_R + 4.0 } else { CLUSTER_R + 2.0 };
+            let r = if c.site.is_some() {
+                SITE_R + 4.0
+            } else if c.members.len() == 1 {
+                PIN_R + 4.0
+            } else {
+                CLUSTER_R + 2.0
+            };
             (i, vp.screen_of(c.world).distance(p), r)
         })
         .filter(|(_, d, r)| d <= r)

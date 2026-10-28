@@ -77,7 +77,12 @@ fn widget(h: &Headless, id: &str) -> Option<egui::Rect> {
 }
 
 fn pins(h: &Headless) -> Vec<String> {
-    h.app.widgets.iter().filter(|(w, _)| w.starts_with("mapPin:") || w.starts_with("mapCluster:")).map(|(w, _)| w.clone()).collect()
+    h.app
+        .widgets
+        .iter()
+        .filter(|(w, _)| w.starts_with("mapPin:") || w.starts_with("mapCluster:") || w.starts_with("mapSite:"))
+        .map(|(w, _)| w.clone())
+        .collect()
 }
 
 fn click_at(h: &mut Headless, at: egui::Pos2) {
@@ -128,12 +133,24 @@ fn clicking_a_pin_selects_its_photo() {
 }
 
 #[test]
-fn close_pins_cluster_when_zoomed_out() {
+fn far_out_the_photos_are_one_named_site_then_a_cluster() {
     let tiles = Arc::new(FakeTiles::default());
     let mut h = demo(&tiles);
     bridge(&mut h);
     open_map(&mut h);
+    // far out: one dot named after the source (demo photos have no folder)
     h.app.ui.map.zoom = 10.0;
+    h.step();
+    h.step();
+    let title = crate::i18n::source_title(&h.app.session);
+    assert_eq!(pins(&h), vec![format!("mapSite:{title}")]);
+    assert!(h.painted_text().iter().any(|t| t == &title), "the site is labelled");
+    // a click on it zooms in to its photos
+    let s = widget(&h, &format!("mapSite:{title}")).unwrap();
+    click_at(&mut h, s.center());
+    assert!(h.app.ui.map.zoom >= 15.0, "{}", h.app.ui.map.zoom);
+    // closer: a cluster with a count
+    h.app.ui.map.zoom = 15.0;
     h.step();
     h.step();
     assert_eq!(pins(&h), vec!["mapCluster:3".to_string()]);
@@ -196,11 +213,11 @@ fn ui_set_moves_the_map_without_fitting_it_again() {
     let mut h = demo(&tiles);
     bridge(&mut h);
     open_map(&mut h);
-    let r = h.request("ui.set", json!({"map": {"zoom": 10.0}}), T);
+    let r = h.request("ui.set", json!({"map": {"zoom": 15.0}}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.step();
     h.step();
-    assert_eq!(h.app.ui.map.zoom, 10.0);
+    assert_eq!(h.app.ui.map.zoom, 15.0);
     assert_eq!(pins(&h), vec!["mapCluster:3".to_string()]);
     // Fit All does fit again
     let r = h.request("engine.execute", json!({"command": "map.fitAll"}), T);

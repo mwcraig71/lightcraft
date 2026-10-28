@@ -1,13 +1,14 @@
 //! Map: every photo in the grid's current list that has a location, as a pin on a map, in
 //! capture order with a thin track line. A click on a pin selects the photo, a double click
 //! opens it; selecting a photo in the filmstrip brings its pin on screen. Pins close together
-//! on screen merge into a cluster with a count (a click zooms to it). See docs/map.md.
+//! on screen merge into a cluster with a count (a click zooms to it); far out, each site is one
+//! dot with its name. See docs/map.md.
 //!
 //! Tiles (OpenStreetMap streets or USGS imagery) come from [`crate::Services::map_tiles`] and
 //! only once the user has turned them on (Settings ▸ Map, or the prompt the first time): until
 //! then, and offline, the pins draw on a plain background with a scale bar.
 //!
-//! - `pins`: which photos have a pin, their order, and screen-space clustering.
+//! - `pins`: which photos have a pin, their order, sites and screen-space clustering.
 //! - `widget`: the slippy map (pan, zoom, tiles, scale bar, attribution, controls).
 //! - `view`: the view around it (status line, filmstrip, prompts).
 

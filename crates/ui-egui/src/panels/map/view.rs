@@ -107,12 +107,18 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         attribution = Some(source.attribution);
     }
 
-    let clusters = pins::cluster(&pins.pins, vp.scale(), CLUSTER_RADIUS);
+    // an album is the user's name for the job; otherwise the folder its photos share
+    let title = crate::i18n::source_title(&app.session);
+    let album = matches!(app.session.source, lightcraft_engine::LibrarySource::Album(_));
+    let name = |m: &[usize]| if album { title.clone() } else { pins::site_name(&pins.pins, m, &title) };
+    let clusters = pins::layout(&pins.pins, vp.scale(), vp.zoom, CLUSTER_RADIUS, &name);
     let selected: std::collections::HashSet<u64> = app.session.selection.ids.iter().map(|i| i.0).chain(app.session.active().map(|a| a.0)).collect();
     widget::draw_pins(ui, &vp, &pins.pins, &clusters, app.ui.map.track, &|id| selected.contains(&id));
     for c in &clusters {
         let at = vp.screen_of(c.world);
-        if c.members.len() == 1
+        if let Some(name) = &c.site {
+            crate::widgets::register_geometry(ui.ctx(), format!("mapSite:{name}"), Rect::from_center_size(at, vec2(20.0, 20.0)));
+        } else if c.members.len() == 1
             && let Some(p) = c.members.first().and_then(|i| pins.pins.get(*i))
         {
             crate::widgets::register_geometry(ui.ctx(), format!("mapPin:{}", p.id.0), Rect::from_center_size(at, vec2(12.0, 12.0)));
@@ -131,6 +137,7 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     }
     if resp.double_clicked()
         && let Some(c) = under.and_then(|i| clusters.get(i))
+        && c.site.is_none()
         && let [only] = c.members.as_slice()
         && let Some(p) = pins.pins.get(*only)
     {
@@ -172,9 +179,15 @@ fn fit(vp: &mut Viewport, points: impl Iterator<Item = (f64, f64)>) {
 }
 
 /// A pin selects its photo (Shift: a range, Cmd/Ctrl: toggle, as in the grid). A cluster zooms
-/// in to its photos; one that can't come apart (photos taken at one spot) selects them all.
+/// in to its photos; one that can't come apart (photos taken at one spot) selects them all. A
+/// site zooms in to its photos.
 fn click(app: &mut LightcraftApp, ui: &egui::Ui, vp: &mut Viewport, pins: &Pins, c: &Cluster) {
     let ids: Vec<u64> = c.members.iter().filter_map(|i| pins.pins.get(*i)).map(|p| p.id.0).collect();
+    if c.site.is_some() {
+        fit(vp, c.members.iter().filter_map(|i| pins.pins.get(*i)).map(|p| p.world));
+        vp.zoom = vp.zoom.max(super::pins::SITE_MAX_ZOOM);
+        return;
+    }
     if let [only] = ids.as_slice() {
         let m = ui.input(|i| i.modifiers);
         let mode = if m.shift {
@@ -290,7 +303,8 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("lc-map-hover")));
     let Some(first) = c.members.first().and_then(|i| pins.pins.get(*i)) else { return };
     let img_h = 132.0;
-    let heading = (c.members.len() == 1).then(|| facts(first)).flatten();
+    let single = c.members.len() == 1 && c.site.is_none();
+    let heading = single.then(|| facts(first)).flatten();
     // wide enough for the longest line (the heading and altitude), never narrower than 200
     let widest = heading.as_ref().map_or(0.0, |h| painter.layout_no_wrap(h.clone(), t.font(11.0), t.text_dim).size().x);
     let card_w = (widest + 16.0).clamp(200.0, 320.0);
@@ -312,9 +326,21 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
         let fit = crate::panels::detail::fit_texture_rect(img, tex.size);
         painter.image(tex.tex.id(), fit, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
     }
-    let name = if c.members.len() > 1 { tr_format!("{n} photos", n = c.members.len()) } else { first.file_name.clone() };
+    let count = widget::photo_count(c.members.len());
+    let name = match &c.site {
+        Some(site) => site.clone(),
+        None if c.members.len() > 1 => count.clone(),
+        None => first.file_name.clone(),
+    };
     painter.text(pos2(card.left() + 8.0, img.bottom() + 8.0), Align2::LEFT_TOP, name, t.semibold(11.5), t.text);
-    let when = first.captured.replacen('T', " ", 1);
+    let when = match c.members.last().and_then(|i| pins.pins.get(*i)) {
+        // a site: how many and over which days
+        Some(last) if c.site.is_some() => {
+            let (a, b) = (first.captured.get(..10).unwrap_or(""), last.captured.get(..10).unwrap_or(""));
+            if a == b { format!("{count} · {a}") } else { format!("{count} · {a} – {b}") }
+        }
+        _ => first.captured.replacen('T', " ", 1),
+    };
     painter.text(pos2(card.left() + 8.0, img.bottom() + 25.0), Align2::LEFT_TOP, when, t.font(11.0), t.text_dim);
     if let Some(line) = heading {
         painter.text(pos2(card.left() + 8.0, img.bottom() + 41.0), Align2::LEFT_TOP, line, t.font(11.0), t.text_dim);
