@@ -7,6 +7,7 @@
 //!
 //! Decoded tiles are kept in a small memory LRU; the UI keeps its own textures.
 
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
@@ -48,10 +49,11 @@ const RETRY_FAILED: Duration = Duration::from_secs(20);
 /// A tile that would not decode, or that the server doesn't have, is asked for again after this.
 const RETRY_BAD: Duration = Duration::from_secs(600);
 
-type Key = (&'static str, TileId);
+/// A source's id and a tile (the built-in sources' ids borrow, so a lookup doesn't allocate).
+type Key = (Cow<'static, str>, TileId);
 
 struct Job {
-    source: &'static TileSource,
+    source: Arc<TileSource>,
     tile: TileId,
 }
 
@@ -68,7 +70,7 @@ struct State {
     tick: u64,
     /// Tiles not to ask for again before the instant.
     missing: HashMap<Key, Instant>,
-    started: HashSet<&'static str>,
+    started: HashSet<Cow<'static, str>>,
 }
 
 struct Shared {
@@ -108,13 +110,14 @@ impl TilePool {
         self.shared.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn start_workers(&self, st: &mut State, source: &'static TileSource) {
-        if !st.started.insert(source.id) {
+    fn start_workers(&self, st: &mut State, source: &TileSource) {
+        if !st.started.insert(source.id.clone()) {
             return;
         }
         for i in 0..WORKERS_PER_SOURCE {
             let shared = Arc::clone(&self.shared);
-            let spawned = std::thread::Builder::new().name(format!("lc-tiles-{}-{i}", source.id)).spawn(move || worker(&shared, source.id));
+            let id = source.id.clone();
+            let spawned = std::thread::Builder::new().name(format!("lc-tiles-{}-{i}", source.id)).spawn(move || worker(&shared, &id));
             if let Err(e) = spawned {
                 log::warn!("map tiles: could not start a worker: {e}");
             }
@@ -135,8 +138,8 @@ impl Drop for TilePool {
 }
 
 impl TileProvider for TilePool {
-    fn get(&self, source: &'static TileSource, tile: TileId) -> TileState {
-        let key = (source.id, tile);
+    fn get(&self, source: &TileSource, tile: TileId) -> TileState {
+        let key = (source.id.clone(), tile);
         let mut st = self.lock();
         st.tick += 1;
         let tick = st.tick;
@@ -153,7 +156,7 @@ impl TileProvider for TilePool {
         let frame = st.frame;
         let known = st.wanted.insert(key, frame).is_some();
         if !known {
-            st.queue.push_back(Job { source, tile });
+            st.queue.push_back(Job { source: Arc::new(source.clone()), tile });
             self.start_workers(&mut st, source);
             drop(st);
             self.shared.work.notify_all();
@@ -165,13 +168,13 @@ impl TileProvider for TilePool {
         let mut st = self.lock();
         let frame = st.frame;
         let State { wanted, queue, in_flight, .. } = &mut *st;
-        queue.retain(|j| wanted.get(&(j.source.id, j.tile)) == Some(&frame));
+        queue.retain(|j| wanted.get(&(j.source.id.clone(), j.tile)) == Some(&frame));
         for (k, cancel) in in_flight.iter() {
             if wanted.get(k) != Some(&frame) {
                 cancel.store(true, Ordering::Relaxed);
             }
         }
-        let live: HashSet<Key> = queue.iter().map(|j| (j.source.id, j.tile)).chain(in_flight.keys().copied()).collect();
+        let live: HashSet<Key> = queue.iter().map(|j| (j.source.id.clone(), j.tile)).chain(in_flight.keys().cloned()).collect();
         wanted.retain(|k, f| *f == frame && live.contains(k));
         st.frame = frame.wrapping_add(1);
     }
@@ -205,7 +208,7 @@ enum Outcome {
     Cancelled,
 }
 
-fn worker(shared: &Shared, source_id: &'static str) {
+fn worker(shared: &Shared, source_id: &str) {
     loop {
         let (job, cancel) = {
             let mut st = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -216,15 +219,15 @@ fn worker(shared: &Shared, source_id: &'static str) {
                 if let Some(i) = st.queue.iter().position(|j| j.source.id == source_id) {
                     let Some(job) = st.queue.remove(i) else { continue };
                     let cancel = Arc::new(AtomicBool::new(false));
-                    st.in_flight.insert((source_id, job.tile), Arc::clone(&cancel));
+                    st.in_flight.insert((job.source.id.clone(), job.tile), Arc::clone(&cancel));
                     break (job, cancel);
                 }
                 st = shared.work.wait(st).unwrap_or_else(PoisonError::into_inner);
             }
         };
         // a bad tile must not take the worker down with it
-        let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| load(shared, job.source, job.tile, &cancel))).unwrap_or(Outcome::Failed);
-        let key = (source_id, job.tile);
+        let outcome = std::panic::catch_unwind(AssertUnwindSafe(|| load(shared, &job.source, job.tile, &cancel))).unwrap_or(Outcome::Failed);
+        let key = (job.source.id.clone(), job.tile);
         let mut st = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
         st.in_flight.remove(&key);
         st.wanted.remove(&key);
@@ -234,7 +237,7 @@ fn worker(shared: &Shared, source_id: &'static str) {
                 let tick = st.tick;
                 st.memory.insert(key, (img, tick));
                 if st.memory.len() > MEMORY_TILES
-                    && let Some(oldest) = st.memory.iter().min_by_key(|(_, (_, used))| *used).map(|(k, _)| *k)
+                    && let Some(oldest) = st.memory.iter().min_by_key(|(_, (_, used))| *used).map(|(k, _)| k.clone())
                 {
                     st.memory.remove(&oldest);
                 }
@@ -250,9 +253,10 @@ fn worker(shared: &Shared, source_id: &'static str) {
     }
 }
 
-fn load(shared: &Shared, source: &'static TileSource, tile: TileId, cancel: &AtomicBool) -> Outcome {
+fn load(shared: &Shared, source: &TileSource, tile: TileId, cancel: &AtomicBool) -> Outcome {
     let now = now_secs();
-    let cached = shared.cache.as_ref().and_then(|c| c.get(source.id, tile));
+    let id: &str = &source.id;
+    let cached = shared.cache.as_ref().and_then(|c| c.get(id, tile));
     if let Some(e) = &cached
         && e.is_fresh(now)
     {
@@ -263,11 +267,17 @@ fn load(shared: &Shared, source: &'static TileSource, tile: TileId, cancel: &Ato
     }
     shared.requests.fetch_add(1, Ordering::Relaxed);
     let expires = |cc: Option<&str>| now.saturating_add(keep_for(cc).as_secs());
-    match shared.fetcher.fetch(&source.url(tile), cached.as_ref().and_then(|e| e.etag.as_deref()), cancel) {
+    let fetched = shared.fetcher.fetch(&source.url(tile), cached.as_ref().and_then(|e| e.etag.as_deref()), cancel);
+    // the server's "no imagery here" picture is no tile (a coarser one stands in)
+    let fetched = match fetched {
+        Ok(Fetched::Tile { etag: Some(tag), .. }) if source.no_data_etag == Some(tag.as_str()) => Ok(Fetched::NoTile),
+        other => other,
+    };
+    match fetched {
         Ok(Fetched::Tile { body, etag, cache_control }) => {
             let entry = Entry { body, etag, expires: expires(cache_control.as_deref()) };
             if let Some(c) = &shared.cache
-                && let Err(e) = c.put(source.id, tile, &entry)
+                && let Err(e) = c.put(id, tile, &entry)
             {
                 log::warn!("map tiles: could not cache a tile: {e}");
             }
@@ -276,7 +286,7 @@ fn load(shared: &Shared, source: &'static TileSource, tile: TileId, cancel: &Ato
         Ok(Fetched::NotModified { cache_control }) => match cached {
             Some(e) => {
                 if let Some(c) = &shared.cache {
-                    c.refresh(source.id, tile, expires(cache_control.as_deref()));
+                    c.refresh(id, tile, expires(cache_control.as_deref()));
                 }
                 decoded(&e.body)
             }
@@ -284,7 +294,7 @@ fn load(shared: &Shared, source: &'static TileSource, tile: TileId, cancel: &Ato
         },
         Ok(Fetched::NoTile) => {
             if let Some(c) = &shared.cache {
-                let _ = c.put(source.id, tile, &Entry { body: Vec::new(), etag: None, expires: expires(None) });
+                let _ = c.put(id, tile, &Entry { body: Vec::new(), etag: None, expires: expires(None) });
             }
             Outcome::Bad
         }
@@ -293,7 +303,8 @@ fn load(shared: &Shared, source: &'static TileSource, tile: TileId, cancel: &Ato
             // offline or the server is down: an old tile beats none
             Some(old) => decoded(&old.body),
             None => {
-                log::debug!("map tiles: {}: {e}", source.id);
+                // never the API key: errors may quote the URL
+                log::debug!("map tiles: {id}: {}", source.redact(&e));
                 Outcome::Failed
             }
         },
@@ -372,7 +383,7 @@ impl Fetcher for HttpFetcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::{OSM, USGS_IMAGERY};
+    use crate::source::{CustomSpec, ESRI_IMAGERY, OSM, USGS_IMAGERY};
 
     fn png() -> Vec<u8> {
         let mut out = Vec::new();
@@ -410,7 +421,7 @@ mod tests {
         }
     }
 
-    fn wait(pool: &TilePool, src: &'static TileSource, t: TileId) -> TileState {
+    fn wait(pool: &TilePool, src: &TileSource, t: TileId) -> TileState {
         let start = Instant::now();
         loop {
             match pool.get(src, t) {
@@ -457,7 +468,7 @@ mod tests {
         let fake = Arc::new(Fake::default());
         let dir = tmp("stale");
         let cache = DiskCache::new(&dir, 1 << 20);
-        cache.put(USGS_IMAGERY.id, T, &Entry { body: png(), etag: Some("old".into()), expires: 1 }).unwrap();
+        cache.put(&USGS_IMAGERY.id, T, &Entry { body: png(), etag: Some("old".into()), expires: 1 }).unwrap();
         // the network is down: the stale tile is drawn anyway
         *fake.answer.lock().unwrap() = Some(Err("could not connect".into()));
         let pool = TilePool::with_fetcher(Box::new(Arc::clone(&fake)), Some(&dir), 1 << 20);
@@ -467,7 +478,48 @@ mod tests {
         *fake.answer.lock().unwrap() = Some(Ok(Fetched::NotModified { cache_control: Some("max-age=999999".into()) }));
         let pool = TilePool::with_fetcher(Box::new(Arc::clone(&fake)), Some(&dir), 1 << 20);
         assert!(matches!(wait(&pool, &USGS_IMAGERY, T), TileState::Ready(_)));
-        assert!(cache.get(USGS_IMAGERY.id, T).unwrap().is_fresh(now_secs()));
+        assert!(cache.get(&USGS_IMAGERY.id, T).unwrap().is_fresh(now_secs()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_no_data_picture_counts_as_no_tile() {
+        let fake = Arc::new(Fake::default());
+        let tag = ESRI_IMAGERY.no_data_etag.map(str::to_string);
+        *fake.answer.lock().unwrap() = Some(Ok(Fetched::Tile { body: png(), etag: tag, cache_control: None }));
+        let pool = TilePool::with_fetcher(Box::new(Arc::clone(&fake)), None, 0);
+        let deep = TileId { z: 19, x: 3, y: 9 };
+        assert!(matches!(wait(&pool, &ESRI_IMAGERY, deep), TileState::Missing), "Esri's grey placeholder is not imagery");
+        assert!(fake.calls.lock().unwrap()[0].0.ends_with("/World_Imagery/MapServer/tile/19/9/3"));
+        // the same picture from another server is a tile
+        assert!(matches!(wait(&pool, &OSM, deep), TileState::Ready(_)));
+    }
+
+    #[test]
+    fn a_custom_source_is_fetched_with_its_key_and_cached_under_its_id() {
+        let fake = Arc::new(Fake::default());
+        *fake.answer.lock().unwrap() = Some(Ok(Fetched::Tile { body: png(), etag: None, cache_control: None }));
+        let dir = tmp("custom");
+        let pool = TilePool::with_fetcher(Box::new(Arc::clone(&fake)), Some(&dir), 1 << 20);
+        let spec = CustomSpec {
+            name: "Mine",
+            url_template: "https://t.example.com/{z}/{x}/{y}.jpg?key={key}",
+            api_key: "k3y",
+            max_native_zoom: 20,
+            attribution: "Me",
+        };
+        let src = TileSource::custom(spec).unwrap();
+        assert!(matches!(wait(&pool, &src, T), TileState::Ready(_)));
+        assert_eq!(fake.calls.lock().unwrap()[0].0, "https://t.example.com/5/3/9.jpg?key=k3y");
+        let folder = dir.join(src.id.as_ref());
+        assert!(folder.join("5").join("3").join("9.tile").is_file(), "{folder:?}");
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().all(|n| !n.contains("k3y")), "{names:?}");
+        // another template: other tiles (a fresh request)
+        let other = TileSource::custom(CustomSpec { url_template: "https://t.example.com/v2/{z}/{x}/{y}.jpg?key={key}", ..spec }).unwrap();
+        assert!(matches!(wait(&pool, &other, T), TileState::Ready(_)));
+        assert_eq!(pool.requests(), 2);
+        drop(pool);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -51,22 +51,93 @@ clock first). The Map view's empty state links to it.
 ## Map tiles: sources, privacy, attribution
 
 LightCraft is local-first: **the map loads no tiles until you turn them on.** The first time the
-Map view opens it asks; the answer is kept in **Settings ▸ Map** (or the Off / Street / Imagery
-buttons on the map). With tiles off the pins draw on a plain background with a scale bar, so the
-view works with no connection.
+Map view opens it asks; the answer is kept in **Settings ▸ Map** (or the Off / Street / Imagery / Esri
+buttons on the map, plus your own source's button once it is set up). With tiles off the pins draw
+on a plain background with a scale bar, so the view works with no connection.
 
-| Choice | Server | Zooms | Attribution (always shown on the map) |
+| Choice (`map.setTileSource`) | Server | Real tiles to zoom | Attribution (always shown on the map) |
 |---|---|---|---|
-| Street | OpenStreetMap, `tile.openstreetmap.org` | 0–19 | © OpenStreetMap contributors |
-| Imagery (US and Puerto Rico) | USGS The National Map, `USGSImageryOnly` | 0–16, scaled up to 19 | USDA, USGS The National Map: Orthoimagery |
+| Street (`street`) | OpenStreetMap, `tile.openstreetmap.org` | 19 | © OpenStreetMap contributors |
+| Imagery (`imagery`; US and Puerto Rico) | USGS The National Map, `USGSImageryOnly` | 16 (about 60 cm a pixel at 40° N) | USDA, USGS The National Map: Orthoimagery |
+| Esri (`esri`; worldwide) | Esri World Imagery, `server.arcgisonline.com/…/World_Imagery/MapServer` | 19 (about 30 cm a pixel; deeper in some metro areas, not used) | Esri — Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community |
+| Your own (`custom`) | any XYZ tile service, see below | what you set | what you set (required) |
+
+Every source zooms on to 22 (about 4 cm a point): past its deepest real tiles, those are scaled
+up, so pins on neighbouring piers still separate (blurrier, never blank).
+
+**Esri World Imagery** is the sharpest built-in imagery: at zoom 19 over the Golden Gate Bridge's
+south tower it shows the lane lines, single cars and the tower's truss shadows, where the USGS
+tiles (scaled up from 16) show a blur. Checked against the live service (October 2026):
+JPEG tiles, `Cache-Control: max-age=86400` with an `ETag`; over the Golden Gate Bridge real imagery
+goes to zoom 21, but in most of the US and Europe (Philadelphia, rural Kansas, Montana, the
+Mackinac Bridge, London) it stops at 19, and some regions stop sooner. Where it has no imagery the
+server does not answer 404: it sends a grey "Map data not yet available" JPEG, always with the same
+`ETag`. LightCraft treats that picture as no tile (a coarser tile stands in) and uses zoom 19 as
+Esri's deepest, so a zoomed-in view is never a wall of grey. The attribution is the service's
+`copyrightText` (from `…/World_Imagery/MapServer?f=pjson`) after "Esri", as Esri's attribution
+guidelines ask.
+
+**Licensing caveat (Esri):** `server.arcgisonline.com` serves these tiles without a key, but Esri's
+terms of use expect an application that uses its basemaps to do so through an ArcGIS account
+(ArcGIS Location Platform or ArcGIS Online), and to show the attribution. LightCraft includes it
+because the user asked for it knowingly, for occasional inspection use, with the same politeness as
+the other sources (below). For heavy or commercial use, get an ArcGIS Location Platform key and use
+Esri's keyed imagery endpoint as a custom source (example below), which also has deeper tiles in
+more places.
 
 Tile requests tell the tile server which area you are looking at, never which photos you have.
 They carry a `User-Agent` naming LightCraft and where to find it.
 
 OpenStreetMap's [tile usage policy](https://operations.osmfoundation.org/policies/tiles/) is
-followed: an identifying User-Agent, cache headers honoured (`Cache-Control` / `ETag`, and tiles
-kept at least 7 days), at most two connections per server, no prefetching or bulk download, and no
-"save this area for offline". USGS imagery is public domain; the attribution above is still shown.
+followed, for every source: an identifying User-Agent, cache headers honoured (`Cache-Control` /
+`ETag`, and tiles kept at least 7 days), at most two connections per server, no prefetching or bulk
+download, and no "save this area for offline". USGS imagery is public domain; the attribution above
+is still shown.
+
+## Your own tile service (Settings ▸ Map ▸ Custom)
+
+For imagery sharper or more current than the built-in sources (a state's orthoimagery service,
+Esri's ArcGIS Location Platform, Mapbox Satellite, Google's Map Tiles API through a proxy, a
+company tile server), fill in **Settings ▸ Map ▸ Custom tile source**:
+
+- **Name:** the label of its button on the map (the "Custom" button appears once the source is
+  valid).
+- **URL template:** `https://` only, with `{z}` (zoom), `{x}` (column) and `{y}` (row) each exactly
+  once, in whatever order the service wants, and optionally `{key}`. Anything else in braces (`{s}`
+  subdomains, `{-y}`, `{r}`) is refused with a message saying what to change; so is `http://`.
+- **API key:** put in place of `{key}` (URL-encoded). Needed only when the template has `{key}`.
+- **Deepest zoom:** the deepest zoom the service has real tiles for (0–22); deeper views scale them
+  up.
+- **Attribution:** required, shown bottom-right on the map like the built-in sources'. Use the
+  wording the service's terms ask for.
+
+The URL and key fields take effect when you press Return or leave the field, so a half-typed URL
+never loads tiles. The line under the fields says "Ready" or what to fix. Then choose it under
+**Under the pins** or with its button on the map (`map.setTileSource {"source": "custom"}`, which
+fails with the reason while the source isn't set up). Scripts can set it all at once with
+`map.setCustomSource` (below).
+
+Template examples:
+
+| Service | URL template | Deepest zoom |
+|---|---|---|
+| Esri ArcGIS Location Platform (World Imagery, keyed) | `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token={key}` | 19 (more in some areas) |
+| Mapbox Satellite | `https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}.jpg90?access_token={key}` | 19–22 depending on area |
+| A generic XYZ server | `https://tiles.example.com/imagery/{z}/{x}/{y}.png` | as published |
+| An ArcGIS MapServer (state orthoimagery) | `https://gis.example.gov/arcgis/rest/services/Ortho2024/MapServer/tile/{z}/{y}/{x}` | from the service's `?f=pjson` (`lods`) |
+
+The service must use Web Mercator (EPSG:3857) tiles in the standard Google/OSM numbering; a
+MapServer's `?f=pjson` says so under `tileInfo` (`wkid` 102100 or 3857).
+
+**The API key is stored in LightCraft's settings file, `ui.json` in the settings folder, in plain
+text** (anyone who can read your user account's files can read it; use a key restricted to tile
+requests where the service allows it). It is never logged (errors are logged with the key taken
+out), never shown by `Debug`, and the control channel and MCP show it as `(hidden)` (`ui.inspect`,
+`ui.set`'s reply; writing that state back keeps the real key). It is not part of any export.
+
+Its tiles are cached like the others, in `tile-cache/custom-<hash>/`, where the hash is of the URL
+template (not the key): a new template gets its own folder and never shows the old one's tiles, and
+changing only the key keeps the cache.
 
 ## Tile cache
 
@@ -119,7 +190,8 @@ Without `path` the text comes back in the result (`text`) instead.
 | `map.fitAll` | | Fit every pin on screen |
 | `map.focus` | `{ids}` | Narrow the filmstrip to these photos and select them (`[]`: all again) |
 | `map.toggleTrack` | `{on?}` | The track line |
-| `map.setTileSource` | `{source: off\|street\|imagery}` | Tiles (also Settings ▸ Map) |
+| `map.setTileSource` | `{source: off\|street\|imagery\|esri\|custom}` | Tiles (also Settings ▸ Map); `custom` fails with the reason while it isn't set up |
+| `map.setCustomSource` | `{name?, url?, apiKey?, maxNativeZoom?, attribution?, use?}` | Change the custom tile source's fields given, check them (error: what to fix, nothing kept) and with `use: true` show it; returns `{name, maxNativeZoom, hasKey, source}` (never the key) |
 | `map.clearCache` | | Delete the cached tiles (background) |
 | `photo.exportLocations` | `{path?, format?: kml\|geojson, ids?, track?, name?}` | Photo locations as KML or GeoJSON; returns `{written, skipped, format, track, path \| text}` |
 | `file.exportLocations` | `{path?, ids?}` | The same with a save dialog (File ▸ Export Photo Locations…) |
@@ -135,7 +207,8 @@ All go through the control channel and MCP like any UI command, e.g. a headless 
 
 ## Code
 
-- `crates/tiles` (`lightcraft-tiles`, layer 2): Web Mercator math, the tile sources, the disk
+- `crates/tiles` (`lightcraft-tiles`, layer 2): Web Mercator math, the tile sources (built-in
+  statics and `TileSource::custom`, which checks a template and keeps the key private), the disk
   cache and the fetch workers (`TilePool`, the native `TileProvider`). No UI.
 - `crates/engine/src/cmd/locations.rs`: `photo.exportLocations` (KML / GeoJSON; a point's fields
   are built in one place, `Point::properties`).

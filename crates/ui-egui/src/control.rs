@@ -110,10 +110,17 @@ fn rect_json(r: egui::Rect) -> Value {
     json!([r.left(), r.top(), r.width(), r.height()])
 }
 
+/// The UI state as the control channel shows it: the custom map tile source's API key hidden.
+fn ui_json(app: &LightcraftApp) -> Value {
+    let mut v = serde_json::to_value(&app.ui).unwrap_or_default();
+    crate::panels::map::hide_key(&mut v);
+    v
+}
+
 pub fn inspect(app: &LightcraftApp, ctx: &egui::Context) -> Value {
     let r = ctx.content_rect();
     json!({
-        "ui": serde_json::to_value(&app.ui).unwrap_or_default(),
+        "ui": ui_json(app),
         "window": [r.width(), r.height()],
         "pixelsPerPoint": ctx.pixels_per_point(),
         "canvasRect": app.canvas_rect.map(rect_json),
@@ -399,6 +406,8 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                         }
                     }
                     u.collapsed_sidebar.clear();
+                    // a state read back from `ui.inspect` carries the key hidden: keep the real one
+                    crate::panels::map::keep_hidden_key(&app.ui.settings.map_custom, &mut u.settings.map_custom);
                     u.toast = app.ui.toast.clone();
                     u.dialog = app.ui.dialog.clone();
                     u.status = app.ui.status.clone();
@@ -406,7 +415,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                     app.ui = u;
                     crate::i18n::set_language(app.ui.language);
                     ctx.request_repaint();
-                    ok(serde_json::to_value(&app.ui).unwrap_or_default())
+                    ok(ui_json(app))
                 }
                 Err(e) => err(e),
             }

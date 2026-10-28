@@ -1,7 +1,7 @@
 //! The Map view, headless, with a fake tile provider (never the network).
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use lightcraft_catalog::{Op, PhotoId};
@@ -15,15 +15,25 @@ use crate::{LightcraftApp, Services};
 
 const T: Duration = Duration::from_secs(20);
 
-/// Solid tiles; counts what it was asked for.
+/// Solid tiles; counts what it was asked for, and the URL of the last tile (as the real pool
+/// would request it; nothing is fetched).
 #[derive(Default)]
 struct FakeTiles {
     requests: AtomicU64,
+    last: Mutex<Option<(String, String)>>,
+}
+
+impl FakeTiles {
+    /// The source id and URL of the last tile asked for.
+    fn last(&self) -> Option<(String, String)> {
+        self.last.lock().unwrap().clone()
+    }
 }
 
 impl TileProvider for FakeTiles {
-    fn get(&self, _: &'static TileSource, _: TileId) -> TileState {
+    fn get(&self, source: &TileSource, tile: TileId) -> TileState {
         self.requests.fetch_add(1, Ordering::Relaxed);
+        *self.last.lock().unwrap() = Some((source.id.to_string(), source.url(tile)));
         TileState::Ready(Arc::new(TileImage { width: 2, height: 2, rgba: [90, 140, 90, 255].repeat(4) }))
     }
     fn end_frame(&self) {}
@@ -476,4 +486,137 @@ fn clicking_a_cluster_narrows_the_filmstrip_to_its_photos() {
     assert!(film(&h).len() > 3);
     let bad = h.request("engine.execute", json!({"command": "map.focus", "params": {"ids": "all"}}), T);
     assert_ne!(bad["ok"], true, "{bad}");
+}
+
+#[test]
+fn esri_imagery_draws_its_tiles_and_attribution() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    bridge(&mut h);
+    open_map(&mut h);
+    assert!(widget(&h, "button:mapAsk-esri").is_some(), "the first-time prompt offers Esri");
+    let r = h.request("engine.execute", json!({"command": "map.setTileSource", "params": {"source": "esri"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.settings.map_tiles, MapTiles::Esri);
+    let r = h.request("ui.set", json!({"map": {"zoom": 21.0}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(tiles.requests() > 0);
+    let (id, url) = tiles.last().expect("a tile asked for");
+    assert_eq!(id, "esri-imagery");
+    // past its deepest real imagery (19) the zoom-19 tile is scaled up
+    assert!(url.starts_with("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/19/"), "{url}");
+    assert!(widget(&h, "map:attribution").is_some());
+    let text = h.painted_text();
+    assert!(text.iter().any(|t| t.contains("Esri — Source: Esri, Vantor, Earthstar Geographics")), "{text:?}");
+    assert!(widget(&h, "button:mapTiles-esri").is_some(), "an Esri button on the map");
+    assert!(widget(&h, "button:mapTiles-custom").is_none(), "no custom button until one is set up");
+}
+
+const KEY: &str = "SECRET-k3y-123";
+
+#[test]
+fn a_custom_tile_source_draws_with_its_attribution_and_hides_its_key() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    bridge(&mut h);
+    open_map(&mut h);
+    // not set up: a clear error, and the tiles stay as they were
+    let r = h.request("engine.execute", json!({"command": "map.setTileSource", "params": {"source": "custom"}}), T);
+    assert_ne!(r["ok"], true, "{r}");
+    assert!(r.to_string().contains("isn't set up") && r.to_string().contains("URL template"), "{r}");
+    assert_eq!(h.app.ui.settings.map_tiles, MapTiles::Ask);
+    // a bad template is refused with what to fix, and nothing is kept
+    let bad = h.request(
+        "engine.execute",
+        json!({"command": "map.setCustomSource", "params": {"url": "http://ortho.example.gov/{z}/{x}/{y}.jpg", "attribution": "x"}}),
+        T,
+    );
+    assert_ne!(bad["ok"], true, "{bad}");
+    assert!(bad.to_string().contains("https://"), "{bad}");
+    assert_eq!(h.app.ui.settings.map_custom.url, "");
+    let r = h.request(
+        "engine.execute",
+        json!({"command": "map.setCustomSource", "params": {
+            "name": "State Ortho",
+            "url": "https://ortho.example.gov/tiles/{z}/{y}/{x}.jpg?token={key}",
+            "apiKey": KEY,
+            "maxNativeZoom": 20,
+            "attribution": "State GIS Office",
+            "use": true,
+        }}),
+        T,
+    );
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(!r.to_string().contains(KEY), "{r}");
+    assert_eq!(r["result"]["hasKey"], true, "{r}");
+    assert_eq!(h.app.ui.settings.map_tiles, MapTiles::Custom);
+    let r = h.request("ui.set", json!({"map": {"zoom": 22.0}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(!r.to_string().contains(KEY), "ui.set's reply hides the key");
+    h.step();
+    h.step();
+    let (id, url) = tiles.last().expect("a tile asked for");
+    assert!(id.starts_with("custom-") && !id.contains(KEY), "{id}");
+    assert!(url.starts_with("https://ortho.example.gov/tiles/20/") && url.ends_with(&format!("?token={KEY}")), "{url}");
+    let text = h.painted_text();
+    assert!(text.iter().any(|t| t.contains("State GIS Office")), "{text:?}");
+    assert!(widget(&h, "button:mapTiles-custom").is_some());
+    assert!(text.iter().any(|t| t == "State Ortho"), "the button has the source's name: {text:?}");
+    assert!(widget(&h, "map:customError").is_none());
+    // the key never shows: the control channel's state, Debug
+    let inspect = h.request("ui.inspect", json!({}), T);
+    assert!(!inspect.to_string().contains(KEY), "ui.inspect hides the key");
+    assert_eq!(inspect["result"]["ui"]["settings"]["mapCustom"]["apiKey"], crate::panels::map::HIDDEN_KEY);
+    assert!(!format!("{:?}", h.app.ui.settings).contains(KEY));
+    // writing the inspected state back keeps the real key
+    let ui_state = inspect["result"]["ui"].clone();
+    let r = h.request("ui.set", ui_state, T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.settings.map_custom.api_key, KEY);
+    // the settings file has it (documented: plain text in ui.json)
+    assert!(serde_json::to_string(&h.app.ui).unwrap().contains(KEY));
+    // another template: another source id (no stale tiles from the old one)
+    let r = h.request(
+        "engine.execute",
+        json!({"command": "map.setCustomSource", "params": {"url": "https://ortho.example.gov/v2/{z}/{y}/{x}.jpg?token={key}"}}),
+        T,
+    );
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    let (id2, _) = tiles.last().unwrap();
+    assert!(id2.starts_with("custom-") && id2 != id, "{id2} vs {id}");
+    // a source that stops being valid (hand-edited settings): the map says so instead of tiles
+    h.app.ui.settings.map_custom.attribution.clear();
+    h.step();
+    h.step();
+    assert!(widget(&h, "map:customError").is_some());
+    assert!(widget(&h, "map:attribution").is_none());
+}
+
+#[test]
+fn settings_map_tab_has_the_custom_source_fields() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    let r = h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "map"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    for w in ["field:mapCustomName", "field:mapCustomUrl", "field:mapCustomKey", "field:mapCustomZoom", "field:mapCustomAttribution"] {
+        assert!(widget(&h, w).is_some(), "{w}");
+    }
+    assert!(widget(&h, "text:mapCustomStatus").is_none(), "nothing to say before a URL is entered");
+    h.app.ui.settings.map_custom.url = "https://tiles.example.com/{z}/{x}/{y}.png?k={key}".into();
+    h.app.ui.settings.map_custom.api_key = KEY.into();
+    h.step();
+    h.step();
+    let text = h.painted_text();
+    assert!(text.iter().any(|t| t.contains("Enter the attribution")), "{text:?}");
+    assert!(!text.iter().any(|t| t.contains(KEY)), "the key field shows dots");
+    h.app.ui.settings.map_custom.attribution = "Example Tiles".into();
+    h.step();
+    h.step();
+    assert!(h.painted_text().iter().any(|t| t.starts_with("Ready")), "{:?}", h.painted_text());
 }

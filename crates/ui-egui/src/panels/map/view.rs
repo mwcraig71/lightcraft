@@ -133,11 +133,11 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     widget::draw_background(ui, &vp);
     let mut attribution = None;
     apply_cache_limit(app, ui.ctx());
-    if let (Some(source), Some(provider)) = (tiles.source(), provider.as_deref()) {
-        if widget::draw_tiles(ui, &vp, provider, source) {
+    if let (Some(source), Some(provider)) = (tiles.source(&app.ui.settings.map_custom), provider.as_deref()) {
+        if widget::draw_tiles(ui, &vp, provider, &source) {
             note_loading(ui.ctx());
         }
-        attribution = Some(source.attribution);
+        attribution = Some(source.attribution.to_string());
     }
 
     // an album is the user's name for the job; otherwise the folder its photos share
@@ -182,10 +182,15 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     }
 
     widget::draw_scale_bar(ui, &vp);
-    if let Some(a) = attribution {
+    if let Some(a) = &attribution {
         widget::draw_attribution(ui, &vp, a);
     }
     controls(app, ui, &mut vp);
+    if tiles == MapTiles::Custom
+        && let Err(e) = app.ui.settings.map_custom.source()
+    {
+        custom_not_set_up(ui, rect, &e);
+    }
     if tiles == MapTiles::Ask {
         ask(app, ui, rect);
     } else if pins.pins.is_empty() {
@@ -254,13 +259,27 @@ fn click(app: &mut LightcraftApp, ui: &egui::Ui, vp: &mut Viewport, pins: &Pins,
 /// Fit All, Track, the tile source and + / −, top-right.
 fn controls(app: &mut LightcraftApp, ui: &mut egui::Ui, vp: &mut Viewport) {
     let t = Tokens::get(ui.ctx());
-    let bar = Rect::from_min_size(pos2(vp.rect.right() - 420.0, vp.rect.top() + 10.0), vec2(410.0, 28.0));
+    let w = 600.0f32.min(vp.rect.width() - 20.0).max(0.0);
+    let bar = Rect::from_min_size(pos2(vp.rect.right() - 10.0 - w, vp.rect.top() + 10.0), vec2(w, 28.0));
     let mut child = ui.new_child(UiBuilder::new().max_rect(bar).layout(egui::Layout::right_to_left(egui::Align::Center)));
     let ui = &mut child;
     ui.spacing_mut().item_spacing.x = 4.0;
+    // the custom source has a button once it is set up (Settings ▸ Map ▸ Custom), under its name
+    let custom = app.ui.settings.map_custom.source().is_ok().then(|| app.ui.settings.map_custom.label());
     for tiles in MapTiles::ALL.iter().rev() {
         let on = app.ui.settings.map_tiles == *tiles || (*tiles == MapTiles::Off && app.ui.settings.map_tiles == MapTiles::Ask);
-        if text_button(ui, &format!("mapTiles-{}", tiles.id()), tiles.label(), on).clicked() {
+        let (label, hover) = match tiles {
+            MapTiles::Custom => match &custom {
+                Some(name) => (name.as_str(), tr("Your own tile service (Settings → Map)")),
+                None if on => (tiles.label(), tr("The custom tile source isn't set up (Settings → Map)")),
+                None => continue,
+            },
+            MapTiles::Street => (tiles.label(), tr("OpenStreetMap street map")),
+            MapTiles::Imagery => (tiles.label(), tr("USGS aerial imagery (United States)")),
+            MapTiles::Esri => (tiles.label(), tr("Esri World Imagery (worldwide aerial imagery)")),
+            MapTiles::Ask | MapTiles::Off => (tiles.label(), tr("No map tiles: no network requests")),
+        };
+        if text_button(ui, &format!("mapTiles-{}", tiles.id()), label, on).on_hover_text(hover).clicked() {
             let _ = app.run("map.setTileSource", json!({"source": tiles.id()}));
         }
     }
@@ -298,21 +317,36 @@ fn ask(app: &mut LightcraftApp, ui: &mut egui::Ui, map: Rect) {
     ui.add_space(4.0);
     ui.label(
         RichText::new(tr(
-            "Map tiles are downloaded from OpenStreetMap (street map) or the USGS (aerial imagery, United States). They see which area you look at, never your photos. Change this any time in Settings → Map.",
+            "Map tiles are downloaded from OpenStreetMap (street map), the USGS (aerial imagery, United States) or Esri (aerial imagery, worldwide, sharper). They see which area you look at, never your photos. Change this any time in Settings → Map.",
         ))
         .font(t.font(11.5))
         .color(t.text_label),
     );
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        for (id, label, tiles) in
-            [("street", "Street Map", MapTiles::Street), ("imagery", "Imagery (US)", MapTiles::Imagery), ("off", "Not Now", MapTiles::Off)]
-        {
+        for (id, label, tiles) in [
+            ("street", "Street Map", MapTiles::Street),
+            ("imagery", "Imagery (US)", MapTiles::Imagery),
+            ("esri", "Imagery (Esri)", MapTiles::Esri),
+            ("off", "Not Now", MapTiles::Off),
+        ] {
             if text_button(ui, &format!("mapAsk-{id}"), label, false).clicked() {
                 app.ui.settings.map_tiles = tiles;
             }
         }
     });
+}
+
+/// Custom tiles are chosen but their settings don't make a tile source: say what to fix.
+fn custom_not_set_up(ui: &mut egui::Ui, map: Rect, why: &str) {
+    let t = Tokens::get(ui.ctx());
+    let card = Rect::from_center_size(pos2(map.center().x, map.top() + 70.0), vec2(460.0f32.min(map.width() - 20.0), 64.0));
+    ui.painter().rect(card, 6.0, t.chrome, Stroke::new(1.0, t.divider), StrokeKind::Inside);
+    register(ui, "map:customError", card);
+    let mut child = ui.new_child(UiBuilder::new().max_rect(card.shrink(12.0)).layout(egui::Layout::top_down(egui::Align::Min)));
+    let ui = &mut child;
+    ui.label(RichText::new(tr("The custom tile source isn't set up (Settings → Map)")).font(t.semibold(12.0)).color(t.text));
+    ui.label(RichText::new(tr(why)).font(t.font(11.0)).color(t.text_label));
 }
 
 /// No photo here has a location: say where locations come from.

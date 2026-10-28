@@ -198,6 +198,10 @@ pub struct AppSettings {
     pub map_tiles: crate::panels::map::MapTiles,
     /// Settings ▸ Map: the tile cache's size limit (MB).
     pub map_cache_mb: u32,
+    /// Settings ▸ Map ▸ Custom: the user's own tile service. Its API key is saved here in plain
+    /// text (docs/map.md); the control channel shows it as `(hidden)`.
+    #[serde(deserialize_with = "lenient")]
+    pub map_custom: crate::panels::map::CustomTiles,
 }
 
 /// Where File ▸ Import Lightroom Catalog… puts a catalog (Settings ▸ General ▸ Library). Saved as
@@ -249,6 +253,7 @@ impl Default for AppSettings {
             lightroom_import: LightroomImport::Ask,
             map_tiles: crate::panels::map::MapTiles::Ask,
             map_cache_mb: crate::panels::map::DEFAULT_CACHE_MB,
+            map_custom: crate::panels::map::CustomTiles::default(),
         }
     }
 }

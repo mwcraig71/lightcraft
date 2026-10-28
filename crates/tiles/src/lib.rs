@@ -7,7 +7,8 @@
 //! web build draws pins without tiles).
 //!
 //! Sources: Web Mercator / slippy-map tile numbering (OpenStreetMap wiki, prose); the OSM tile
-//! usage policy; USGS The National Map service description. Own implementation.
+//! usage policy; USGS The National Map and Esri World Imagery service descriptions (their
+//! `?f=pjson` JSON). Own implementation.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -47,7 +48,7 @@ pub enum TileState {
 pub trait TileProvider: Send + Sync {
     /// The tile, or [`TileState::Pending`] after queueing it. Call it for every tile the view
     /// shows this frame, then [`TileProvider::end_frame`].
-    fn get(&self, source: &'static TileSource, tile: TileId) -> TileState;
+    fn get(&self, source: &TileSource, tile: TileId) -> TileState;
     /// Drop the queued and in-flight requests not asked for since the last call (tiles that left the view).
     fn end_frame(&self);
     /// Network requests sent so far (tests check that none are made with tiles off).
