@@ -146,6 +146,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "file.exportPresets",
             "file.importKeywords",
             "file.exportKeywords",
+            "file.exportLocations",
             "---",
             "dialog.export",
             "app.exportPrevious",

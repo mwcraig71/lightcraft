@@ -1845,6 +1845,45 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             return Some(r);
         }
+        "file.exportLocations" => {
+            let path = match p.get("path").and_then(Value::as_str) {
+                Some(x) => x.to_string(),
+                None => {
+                    let req = PickRequest::save(
+                        crate::i18n::tr("Export Photo Locations"),
+                        crate::i18n::tr("KML or GeoJSON"),
+                        &["kml", "geojson"],
+                        "Photo Locations.kml",
+                    );
+                    match crate::pick::ask(app, id, p, "path", req, |_| None) {
+                        Picked::Now(v) => match v.into_iter().next() {
+                            Some(x) => x,
+                            None => return Some(Ok(Value::Null)),
+                        },
+                        Picked::Later => return Some(Ok(Value::Null)),
+                        Picked::Unavailable => return Some(Err("no file dialog on this platform".into())),
+                    }
+                }
+            };
+            // the selection when several photos are selected, else the photos shown (the engine's default)
+            let mut params = json!({"path": path});
+            if let Some(ids) = p.get("ids") {
+                params["ids"] = ids.clone();
+            }
+            let r = app.session.execute("photo.exportLocations", &params).map_err(|e| e.to_string());
+            match &r {
+                Ok(v) => {
+                    let (n, skipped) = (v["written"].as_u64().unwrap_or(0), v["skipped"].as_u64().unwrap_or(0));
+                    let mut msg = crate::i18n::tr_format!("Exported {n} photo location{}", if n == 1 { "" } else { "s" }, n = n);
+                    if skipped > 0 {
+                        msg.push_str(&crate::i18n::tr_format!("; {n} without a location left out", n = skipped));
+                    }
+                    app.toast(&ctx, msg);
+                }
+                Err(e) => app.toast(&ctx, e.clone()),
+            }
+            return Some(r);
+        }
         "dialog.saveMaskEffect" => {
             if app.session.active_mask.is_none() {
                 return Some(Err("select a mask first".into()));
