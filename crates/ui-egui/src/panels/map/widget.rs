@@ -273,7 +273,7 @@ pub(crate) fn draw_cone(painter: &egui::Painter, at: Pos2, degrees: f32, color: 
 /// The accuracy circle: drawn once wider than a pin, never wider than this (points) across.
 const ACCURACY_MIN_R: f32 = 8.0;
 const ACCURACY_MAX_R: f32 = 400.0;
-const ACCURACY: Color32 = Color32::from_rgb(66, 153, 225);
+pub(crate) const ACCURACY: Color32 = Color32::from_rgb(66, 153, 225);
 
 /// The radius in points of a positioning error of `metres` at latitude `lat` and `zoom` (Web
 /// Mercator), capped to [`ACCURACY_MAX_R`]; `None` when it would hide under the pin or the

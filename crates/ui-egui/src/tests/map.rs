@@ -287,6 +287,22 @@ fn the_info_panel_has_a_mini_map_for_a_located_photo() {
 }
 
 #[test]
+fn the_mini_map_shows_the_accuracy_circle() {
+    let tiles = Arc::new(FakeTiles::default());
+    let (mut h, ids) = info_on(&tiles, |ids| ids[0]);
+    assert!(widget(&h, "info:miniMapAccuracy").is_none(), "no positioning error, no circle");
+    let mut meta = h.app.session.catalog.photo(ids[0]).unwrap().meta.clone();
+    meta.gps_accuracy = Some(15.0);
+    h.app.session.commit("setup", Op::SetMeta { id: ids[0], meta: Box::new(meta) }).unwrap();
+    h.step();
+    h.step();
+    let mini = widget(&h, "info:miniMap").unwrap();
+    let circle = widget(&h, "info:miniMapAccuracy").expect("a ±15 m circle at zoom 17");
+    assert!(mini.contains(circle.center()), "{circle:?} in {mini:?}");
+    assert!(circle.width() > 20.0, "{circle:?}");
+}
+
+#[test]
 fn the_mini_map_draws_tiles_only_when_they_are_on() {
     let tiles = Arc::new(FakeTiles::default());
     let (mut h, _) = info_on(&tiles, |ids| ids[0]);

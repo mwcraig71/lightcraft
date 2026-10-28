@@ -1,5 +1,5 @@
-//! The Info panel's mini-map: the active photo's place at [`PHOTO_ZOOM`], its pin and its view
-//! cone, under the GPS field. Static (no pan or zoom); a click opens the Map view there. Tiles
+//! The Info panel's mini-map: the active photo's place at [`PHOTO_ZOOM`], its pin, its view
+//! cone and its accuracy circle, under the GPS field. Static (no pan or zoom); a click opens the Map view there. Tiles
 //! only when the user has turned them on, as in the Map view; it never asks for them itself.
 
 use egui::{Rect, Sense, Stroke, StrokeKind, pos2, vec2};
@@ -21,6 +21,7 @@ pub fn mini_map(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, width: 
     let Some(p) = app.session.catalog.photo(id) else { return };
     let Some((lat, lon)) = p.meta.gps.filter(|g| pins::usable(*g)) else { return };
     let direction = p.meta.gps_direction.filter(|d| d.is_finite());
+    let accuracy = p.meta.gps_accuracy;
     let world = mercator::to_world(lat, lon);
     let t = Tokens::get(ui.ctx());
     let (rect, _) = ui.allocate_exact_size(vec2(width.min(ui.available_width()).max(40.0), MINI_MAP_H), Sense::hover());
@@ -43,6 +44,10 @@ pub fn mini_map(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, width: 
     }
     let painter = ui.painter_at(rect);
     let at = vp.screen_of(world);
+    if let Some(r) = accuracy.and_then(|e| widget::accuracy_radius(e, lat, vp.zoom)) {
+        widget::draw_accuracy(&painter, at, r, widget::ACCURACY);
+        crate::widgets::register_geometry(ui.ctx(), "info:miniMapAccuracy", Rect::from_center_size(at, vec2(2.0 * r, 2.0 * r)));
+    }
     if let Some(d) = direction {
         widget::draw_cone(&painter, at, d, widget::CONE);
     }
