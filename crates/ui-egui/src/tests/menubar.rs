@@ -48,8 +48,10 @@ fn check_bar_clear(h: &Headless, id: &str, what: &str) {
 #[test]
 fn no_menu_or_submenu_covers_the_menu_bar() {
     // The reporter's 1280 × 720 display less the title bar, and a shorter window where even a
-    // scrolled menu's submenus must open upward.
-    let sizes = [[1280.0, 703.0], [1160.0, 560.0]];
+    // scrolled menu's submenus must open upward. Its height is picked so that the scroll viewport
+    // cuts the File menu's Export with Preset row in half (`clipped_rows` below): an item added
+    // to the File menu moves that row, and this height with it.
+    let sizes = [[1280.0, 703.0], [1160.0, 588.0]];
     let mut submenus = 0;
     let mut clipped_rows = 0;
     for size in sizes {

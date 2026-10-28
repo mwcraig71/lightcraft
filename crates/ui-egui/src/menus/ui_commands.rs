@@ -246,6 +246,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("file.exportMaskEffects", "Export Effect Presets…", None, ""),
     ("file.importKeywords", "Import Keywords…", None, "File"),
     ("file.exportKeywords", "Export Keywords…", None, "File"),
+    // {path?, ids?}: photo.exportLocations with a save dialog (KML or GeoJSON by the extension)
+    ("file.exportLocations", "Export Photo Locations…", None, "File"),
     // Edit panel ▸ Curve ▸ Point Curve dropdown
     ("file.importCurvePresets", "Import Point Curve Presets…", None, ""),
     ("file.exportCurvePresets", "Export Point Curve Presets…", None, ""),

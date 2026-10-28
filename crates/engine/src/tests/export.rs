@@ -309,6 +309,11 @@ fn preset_export_never_overwrites_originals_or_sidecars() {
 }
 
 #[test]
+fn location_export_never_overwrites_originals_or_sidecars() {
+    preset_export_preserves_originals("photo.exportLocations", json!({}), "locations-export-guard");
+}
+
+#[test]
 fn curve_preset_export_never_overwrites_originals_or_sidecars() {
     preset_export_preserves_originals("curve.exportPresets", json!({"names": ["Linear"]}), "curve-export-guard");
 }

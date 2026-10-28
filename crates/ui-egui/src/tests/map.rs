@@ -396,3 +396,30 @@ fn photos_with_a_positioning_error_get_an_accuracy_circle() {
     h.step();
     assert!(h.painted_text().iter().any(|t| t.contains("±20 m")), "{:?}", h.painted_text());
 }
+
+/// File ▸ Export Photo Locations… is in the menu, writes the photos shown (KML by the extension)
+/// and says how many it wrote and left out.
+#[test]
+fn export_photo_locations_writes_kml_and_says_what_it_left_out() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    let ids = bridge(&mut h);
+    let items = h.request("ui.menu.list", json!({}), T)["result"].to_string();
+    assert!(items.contains("file.exportLocations"), "{items}");
+    let dir = std::env::temp_dir().join(format!("lc-ui-locations-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("sites.kml");
+    let r = h.request("engine.execute", json!({"command": "file.exportLocations", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["result"]["written"], 3, "{r}");
+    let kml = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(kml.matches("<Placemark>").count(), 4, "three photos and the track: {kml}");
+    let toast = h.app.ui.toast.clone().map(|t| t.0).unwrap_or_default();
+    assert!(toast.contains("Exported 3 photo locations") && toast.contains(&format!("{} without a location", ids.len() - 3)), "{toast}");
+    // a folder that isn't there: an error in the toast, not a panic
+    let gone = dir.join("gone").join("x.kml");
+    let r = h.request("engine.execute", json!({"command": "file.exportLocations", "params": {"path": gone.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], false, "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -76,6 +76,39 @@ can't be reached the old tile is still drawn, so areas viewed before stay usable
 poor signal. **Settings ▸ Map** sets the cache size (default 500 MB; the least recently used tiles
 go first) and has **Clear Cache** (runs in the activity stack).
 
+## Export photo locations (KML, GeoJSON)
+
+**File ▸ Export Photo Locations…** writes where the photos were taken, for an inspection report,
+Google Earth or a GIS. It takes the selected photos when several are selected, otherwise every
+photo the grid (and the map) shows. The file type follows the name: `.kml` (KML 2.2, Google Earth)
+or `.geojson` (RFC 7946, QGIS, ArcGIS, geojson.io). Photos without a usable location (none, 0, 0,
+or out of range) are left out and counted.
+
+Each photo is one point, in capture order, with:
+
+| Field | KML | GeoJSON |
+|---|---|---|
+| Name: the photo's title, else its file name | `<name>` | `name` |
+| Capture time (ISO 8601, the camera's clock; zone when recorded) | `<TimeStamp><when>` and `captured` | `captured` |
+| Latitude, longitude | `<coordinates>lon,lat[,alt]</coordinates>` | `coordinates: [lon, lat, alt?]` |
+| Altitude (metres above sea level), when known | in the coordinates (`altitudeMode` absolute) and `altitude` | in the coordinates and `altitude` |
+| Heading (degrees from north) and `headingRef` (`true` or `magnetic`), when recorded | `ExtendedData` | properties |
+| Photo id, file name and the original's path | `ExtendedData` (`id`, `fileName`, `path`) | `id`, `fileName`, `path` |
+
+Every photo point has `kind: photo`. A **track** through the points in capture order is added
+(turn it off with `track: false`): in KML a `Track` Placemark with a LineString, in GeoJSON a
+LineString feature; both have `kind: track`, so a GIS layer can be filtered to the photos alone.
+The track has altitudes only when every photo has one. The file is written whole or not at all
+(a temporary file renamed into place), and never over an original or its sidecar.
+
+From the CLI, control channel or MCP (`cmd_photo_exportLocations`):
+
+```sh
+lightcraft-cli run --library ~/Pictures/LightCraft photo.exportLocations path=bridge-1234.kml
+```
+
+Without `path` the text comes back in the result (`text`) instead.
+
 ## Commands
 
 | Command | Params | |
@@ -85,6 +118,8 @@ go first) and has **Clear Cache** (runs in the activity stack).
 | `map.toggleTrack` | `{on?}` | The track line |
 | `map.setTileSource` | `{source: off\|street\|imagery}` | Tiles (also Settings ▸ Map) |
 | `map.clearCache` | | Delete the cached tiles (background) |
+| `photo.exportLocations` | `{path?, format?: kml\|geojson, ids?, track?, name?}` | Photo locations as KML or GeoJSON; returns `{written, skipped, format, track, path \| text}` |
+| `file.exportLocations` | `{path?, ids?}` | The same with a save dialog (File ▸ Export Photo Locations…) |
 
 All go through the control channel and MCP like any UI command, e.g. a headless snapshot script:
 
@@ -99,6 +134,8 @@ All go through the control channel and MCP like any UI command, e.g. a headless 
 
 - `crates/tiles` (`lightcraft-tiles`, layer 2): Web Mercator math, the tile sources, the disk
   cache and the fetch workers (`TilePool`, the native `TileProvider`). No UI.
+- `crates/engine/src/cmd/locations.rs`: `photo.exportLocations` (KML / GeoJSON; a point's fields
+  are built in one place, `Point::properties`).
 - `crates/ui-egui/src/panels/map/`: the view, the map widget and the pins. The UI gets tiles
   through `Services::map_tiles` (the desktop app passes a `TilePool`; the web build and tests pass
   none or a fake, so tests never touch the network).

@@ -23,6 +23,7 @@ mod focus;
 pub mod geocode;
 pub mod keywords;
 pub mod library;
+pub mod locations;
 pub mod lut_profiles;
 pub mod manage;
 pub mod mask_effect_files;
@@ -171,6 +172,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(sync::specs());
         v.extend(metadata::specs());
         v.extend(geocode::specs());
+        v.extend(locations::specs());
         v.extend(filters::specs());
         v.extend(denoise::specs());
         v.extend(face_models::specs());
