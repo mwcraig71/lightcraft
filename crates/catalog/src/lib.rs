@@ -20,6 +20,7 @@ pub mod journal;
 pub mod keywords;
 pub mod local;
 pub mod lock;
+pub mod markers;
 pub mod model;
 pub mod query;
 pub mod rules;
@@ -38,6 +39,7 @@ pub use keywords::KeywordNode;
 use lightcraft_develop::DevelopSettings;
 pub use local::{DEFAULT_FORGET_DAYS, ForgetPlan, LocalRecords, folder_of};
 pub use lock::{LibraryLock, LockError, LockOwner};
+pub use markers::{Attachment, AttachmentKind, Marker, MarkerId};
 pub use model::*;
 pub use query::{DateGroup, Filter, Person, RatingOp, Sort, SortKey, mix64};
 pub use rules::{Match, Rule, RuleSet};
@@ -256,6 +258,13 @@ pub enum Op {
         folder: String,
         record: Option<FolderRecord>,
     },
+    /// Add, replace (`Some`) or remove (`None`) a map marker with its attachments and photos
+    /// (see [`markers`]). Format version 10.
+    SetMarker {
+        id: MarkerId,
+        #[serde(default)]
+        marker: Option<Box<Marker>>,
+    },
     /// Several ops as one step (undo applies the inverses in reverse).
     Batch {
         ops: Vec<Op>,
@@ -284,6 +293,11 @@ pub struct Catalog {
     /// What the library keeps about its folders (folder identity → record), see [`folders`].
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     folder_records: BTreeMap<String, FolderRecord>,
+    /// Map markers by id (see [`markers`]).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    markers: BTreeMap<MarkerId, Marker>,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    next_marker: u64,
     /// Increments on every applied op, and when a batch fails and its rollback cannot undo it whole (the catalog
     /// changed, so what is keyed by the revision is out of date).
     #[serde(skip)]
@@ -379,6 +393,13 @@ impl Catalog {
         self.next_album = id.0.saturating_add(1);
         id
     }
+    /// A marker id past every one in use.
+    pub fn alloc_marker_id(&mut self) -> MarkerId {
+        let past = self.markers.keys().last().map_or(1, |k| k.0.saturating_add(1));
+        let id = MarkerId(self.next_marker.max(past).max(1));
+        self.next_marker = id.0.saturating_add(1);
+        id
+    }
     pub fn alloc_stack_id(&mut self) -> StackId {
         let id = StackId(self.next_stack.max(1));
         self.next_stack = id.0.saturating_add(1);
@@ -426,6 +447,13 @@ impl Catalog {
     /// Whether anything inside `parent` has a place of its own (the folder is ordered by hand).
     pub fn album_children_are_ordered(&self, parent: Option<AlbumId>) -> bool {
         self.albums.values().any(|a| a.parent == parent && a.order.is_some())
+    }
+    pub fn marker(&self, id: MarkerId) -> Option<&Marker> {
+        self.markers.get(&id)
+    }
+    /// Every map marker, by id.
+    pub fn markers(&self) -> impl Iterator<Item = &Marker> {
+        self.markers.values()
     }
     /// The Quick Collection, once something was added to it.
     pub fn quick_collection(&self) -> Option<AlbumId> {
@@ -697,6 +725,8 @@ impl Catalog {
             | Op::SetBrowsed { .. }
             | Op::SetKeyword { .. }
             | Op::SetFolderRecord { .. } => self.changes.broad = self.revision.saturating_add(1),
+            // (a marker is no photo's: no tally of the photos changes)
+            Op::SetMarker { .. } => {}
         }
         Ok(match op {
             Op::AddPhoto { photo } => {
@@ -984,6 +1014,24 @@ impl Catalog {
                 };
                 Op::SetFolderRecord { folder: key, record: old }
             }
+            Op::SetMarker { id, marker } => {
+                if let Some(m) = &marker {
+                    if m.id != id {
+                        return Err(CatalogError::Invalid(format!("marker {} filed as {}", m.id.0, id.0)));
+                    }
+                    if let Some(why) = m.problem() {
+                        return Err(CatalogError::Invalid(why));
+                    }
+                }
+                let old = match marker {
+                    Some(m) => {
+                        self.next_marker = self.next_marker.max(id.0.saturating_add(1));
+                        self.markers.insert(id, *m)
+                    }
+                    None => self.markers.remove(&id),
+                };
+                Op::SetMarker { id, marker: old.map(Box::new) }
+            }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -1134,6 +1182,12 @@ impl Catalog {
             // previously validated chain. Unvisited ancestors never inherit a guessed verdict.
             valid.extend(walked);
         }
+        for (id, m) in self.markers.iter_mut() {
+            if m.id != *id {
+                changed.push(format!("marker {} was filed as {}", m.id.0, id.0));
+                m.id = *id;
+            }
+        }
         let past = |last: Option<u64>| last.map_or(1, |v| v.saturating_add(1));
         let (photo, album, stack) = (
             past(self.photos.keys().last().map(|k| k.0)),
@@ -1182,6 +1236,10 @@ impl Catalog {
 
 /// How siblings are listed: folders first, then the ones with a place of their own by it, then by
 /// name; the id settles any tie.
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 fn album_order_key(a: &Album) -> (bool, bool, u32, String, AlbumId) {
     (!a.folder, a.order.is_none(), a.order.unwrap_or(0), a.name.to_lowercase(), a.id)
 }
@@ -1206,6 +1264,8 @@ mod tests_journal;
 mod tests_local;
 #[cfg(test)]
 mod tests_lock;
+#[cfg(test)]
+mod tests_markers;
 #[cfg(test)]
 mod tests_repair;
 #[cfg(test)]
