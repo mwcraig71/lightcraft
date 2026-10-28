@@ -41,6 +41,54 @@ a few hundred photos along one structure.
   selected. It draws tiles only once they are turned on, with their attribution, and never asks
   for them itself. **Show on Map** still opens the place in OpenStreetMap in the browser.
 
+## Markers and attachments
+
+A **marker** is a point you place on the map (a pier, a joint, a bearing) to keep the documents
+about that spot with the photos: an inspection PDF, a spreadsheet, Markdown or text notes, more
+photos. It makes the Map view a light record of the site, kept with the library.
+
+- **Add one:** right-click the map ▸ **Add Marker Here**. A marker draws as a teal diamond with a
+  count of what is attached, above the photo pins and never merged into their clusters; zoomed
+  far out, where a site is one named dot, it is drawn small without its count.
+- **Attach files:** right-click ▸ **Attach Files Here…** (a file dialog, several files at once;
+  on a marker: **Attach Files to This Marker…**), the card's **Attach Files…**, or **drop files on
+  the map**: they attach to the marker whose card is open, otherwise to a new marker at the point
+  they are dropped on. (Dropping files anywhere else still imports them as before.)
+- **Files are copied into the library**, to `<library>/Attachments/<marker id>/<file name>`, so
+  they travel with the library and the original can move or be deleted. A name already there
+  gets `-1`, `-2`… (nothing is ever overwritten). A missing or unreadable file, a folder, or a full
+  disk is reported for that file; the others are still attached. Documents over 16 MB in all are
+  copied in the background (in the activity stack, where they can be cancelled).
+- **A photo becomes a photo at that spot:** an image LightCraft reads is imported like any photo
+  (copied into the library's `Originals/`), its location is set to the marker's point and it is
+  listed on the marker. The location is written to the catalog and, with XMP sidecars on, to the
+  sidecar; the original file's EXIF is never changed. A photo already in the library is linked
+  and moved to the point instead of imported twice. It shows as an ordinary pin and in the
+  filmstrip when it is in the folder, album or filter on screen.
+- **The card:** a click on a marker opens it, on the right of the map. Edit the **title** and
+  **note** (plain text; saved when you press Return or leave the field). Each attachment shows its
+  type, name and size with **Open** (the library's copy in its default app), **Show** (in Finder /
+  Explorer / the file manager) and **Remove**. **Photos here (N)** narrows the filmstrip to the
+  marker's photos (`map.focus`). **Delete Marker** asks first when something is attached.
+- **Opening is limited to documents and pictures** (PDF, Office and OpenDocument files, CSV, text,
+  Markdown, JSON/XML/KML/GeoJSON/GPX, DXF/DWG/IFC, images, MP4/MOV) inside the marker's folder.
+  Anything else, such as a program or a script, can only be shown in its folder, so a click never
+  runs one.
+- **Undo and removed files:** adding, editing, attaching, removing an attachment and deleting a
+  marker are each one undo step. **Removing an attachment or a marker removes only the record**:
+  the copy stays in `Attachments/<marker id>/`, so undo and redo always find it, and an attached
+  photo stays in the library. LightCraft never deletes an attached file; to reclaim the space,
+  delete the folder of a marker you no longer need yourself.
+- Moving a marker (`map.updateMarker` with `lat`, `lon`) doesn't move its photos.
+- **Export:** File ▸ Export Photo Locations… includes the markers (below).
+
+From the CLI, control channel or MCP:
+
+```sh
+lightcraft-cli run --library ~/Pictures/LightCraft map.attach lat=37.8199 lon=-122.4783 \
+  'paths=["inspection.pdf", "deck.xlsx", "pier-3.jpg"]'
+```
+
 ## Photos without a location
 
 Phones, tablets and most drones record GPS. A DSLR usually doesn't: record a GPX track on a phone
@@ -97,7 +145,10 @@ Each photo is one point, in capture order, with:
 | `accuracy`: how far off the position may be (metres, from `GPSHPositioningError`), when recorded | `ExtendedData` | properties |
 | Photo id, file name and the original's path | `ExtendedData` (`id`, `fileName`, `path`) | `id`, `fileName`, `path` |
 
-Every photo point has `kind: photo`. A **track** through the points in capture order is added
+Every photo point has `kind: photo`. The map's **markers** are added as points with `kind:
+marker` (in KML, a `Markers` folder): `name` (the title, else "Marker N"), `id`, `note` (also the
+KML `description`), `attachments` (the attached files' names) and `photos` (the ids of the photos
+attached there); `markers: false` leaves them out. A **track** through the points in capture order is added
 (turn it off with `track: false`): in KML a `Track` Placemark with a LineString, in GeoJSON a
 LineString feature; both have `kind: track`, so a GIS layer can be filtered to the photos alone.
 The track has altitudes only when every photo has one. The file is written whole or not at all
@@ -121,7 +172,18 @@ Without `path` the text comes back in the result (`text`) instead.
 | `map.toggleTrack` | `{on?}` | The track line |
 | `map.setTileSource` | `{source: off\|street\|imagery}` | Tiles (also Settings ▸ Map) |
 | `map.clearCache` | | Delete the cached tiles (background) |
-| `photo.exportLocations` | `{path?, format?: kml\|geojson, ids?, track?, name?}` | Photo locations as KML or GeoJSON; returns `{written, skipped, format, track, path \| text}` |
+| `photo.exportLocations` | `{path?, format?: kml\|geojson, ids?, track?, markers?, name?}` | Photo locations (and the markers) as KML or GeoJSON; returns `{written, markers, skipped, format, track, path \| text}` |
+| `map.addMarker` | `{lat, lon, title?, note?}` | A new marker; returns `{id, marker}` |
+| `map.updateMarker` | `{id, title?, note?, lat?, lon?}` | Edit a marker; returns `{changed, marker}` |
+| `map.removeMarker` | `{id}` | Delete a marker's record (the copied files stay); returns `{removed, attachments, photos}` |
+| `map.attach` | `{marker \| lat, lon, paths: [file]}` | Copy files into the library and attach them (images: imported as photos at the point; a new marker at `lat`, `lon` without `marker`); returns `{marker, attached, photos, errors, card}` |
+| `map.detach` | `{marker, attachment}` \| `{marker, photo}` | Take an attachment or a photo off a marker (the copy and the photo stay) |
+| `map.markers` | `{id?}` | Every marker with its attachments (`path` in the library, `file`, `exists`) and photos |
+| `map.attachmentPath` | `{marker, attachment}` | Where the library's copy is, and whether it is a type that opens: `{path, exists, openable, reason?}` |
+| `map.openMarker` | `{id}` | Open a marker's card on the Map view (`null`: close it) |
+| `map.attachFiles` | `{marker \| lat, lon, paths?}` | `map.attach` from the UI: a file dialog without `paths`; big documents copied in the background |
+| `map.openAttachment` | `{marker, attachment}` | Open the library's copy with the system's default app (documents and pictures only) |
+| `map.revealAttachment` | `{marker, attachment}` | Show the library's copy in its folder |
 | `file.exportLocations` | `{path?, ids?}` | The same with a save dialog (File ▸ Export Photo Locations…) |
 
 All go through the control channel and MCP like any UI command, e.g. a headless snapshot script:
@@ -139,6 +201,9 @@ All go through the control channel and MCP like any UI command, e.g. a headless 
   cache and the fetch workers (`TilePool`, the native `TileProvider`). No UI.
 - `crates/engine/src/cmd/locations.rs`: `photo.exportLocations` (KML / GeoJSON; a point's fields
   are built in one place, `Point::properties`).
-- `crates/ui-egui/src/panels/map/`: the view, the map widget and the pins. The UI gets tiles
+- `crates/catalog/src/markers.rs`: the marker record (`Op::SetMarker`, catalog format 10);
+  `crates/engine/src/cmd/markers.rs`: the `map.*` marker commands, the copies and the open gate.
+- `crates/ui-egui/src/panels/map/`: the view, the map widget, the pins and the markers
+  (`markers.rs`: drawing, the card, the context menu, drops). The UI gets tiles
   through `Services::map_tiles` (the desktop app passes a `TilePool`; the web build and tests pass
   none or a fake, so tests never touch the network).
