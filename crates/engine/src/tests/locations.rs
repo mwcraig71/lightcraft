@@ -13,12 +13,14 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
     d
 }
 
-/// Give photo `id` a position, altitude, heading, title and capture time.
+/// Give photo `id` a position, altitude, heading, title and capture time (a photo with an
+/// altitude also gets a ±6.5 m accuracy).
 fn place(s: &mut Session, id: u64, gps: Option<(f64, f64)>, alt: Option<f64>, heading: Option<(f32, bool)>, title: &str, captured: &str) {
     let id = PhotoId(id);
     let mut meta = s.catalog.photo(id).unwrap().meta.clone();
     meta.gps = gps;
     meta.gps_altitude = alt;
+    meta.gps_accuracy = alt.map(|_| 6.5);
     meta.gps_direction = heading.map(|h| h.0);
     meta.gps_direction_magnetic = heading.is_some_and(|h| h.1);
     meta.title = title.into();
@@ -61,6 +63,7 @@ fn geojson_has_points_in_capture_order_and_a_track() {
     assert_eq!(p["altitude"], 120.5);
     assert_eq!(p["heading"], 87.3);
     assert_eq!(p["headingRef"], "magnetic");
+    assert_eq!(p["accuracy"], 6.5);
     assert_eq!(p["id"], ids[0]);
     // an untitled photo is named by its file
     let untitled = s.catalog.photo(PhotoId(ids[1])).unwrap().file_name.clone();
@@ -93,6 +96,7 @@ fn kml_escapes_names_and_writes_lon_lat_alt() {
     assert!(k.contains("<Data name=\"heading\"><value>87.3</value></Data>"), "{k}");
     assert!(k.contains("<Data name=\"headingRef\"><value>magnetic</value></Data>"), "{k}");
     assert!(k.contains("<Data name=\"altitude\"><value>118</value></Data>"), "{k}");
+    assert!(k.contains("<Data name=\"accuracy\"><value>6.5</value></Data>"), "{k}");
     // capture order: the 10:00 photo before the 10:05 one, in the folder and along the track
     let (a, b) = (k.find("-75.2,40.4,118").unwrap(), k.find("-75.25,40.5,120.5").unwrap());
     assert!(a < b);

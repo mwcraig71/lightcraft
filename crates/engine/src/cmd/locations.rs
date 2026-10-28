@@ -68,6 +68,8 @@ pub struct Point {
     /// Degrees clockwise from north, and whether from magnetic north.
     pub heading: Option<f64>,
     pub magnetic: bool,
+    /// How far off the position may be (metres; `GPSHPositioningError`).
+    pub accuracy: Option<f64>,
 }
 
 /// Rounded to `places` decimals (headings are f32 in the catalog: 87.3 not 87.30000305).
@@ -97,6 +99,7 @@ impl Point {
             altitude: p.meta.gps_altitude.filter(|a| a.is_finite()).map(|a| round(a, 3)),
             heading: p.meta.gps_direction.map(f64::from).filter(|d| d.is_finite()).map(|d| round(d, 2)),
             magnetic: p.meta.gps_direction_magnetic && p.meta.gps_direction.is_some(),
+            accuracy: p.meta.gps_accuracy.filter(|m| m.is_finite() && *m > 0.0).map(|m| round(m, 2)),
         })
     }
 
@@ -115,6 +118,9 @@ impl Point {
         if let Some(h) = self.heading {
             v.push(("heading", json!(h)));
             v.push(("headingRef", json!(if self.magnetic { "magnetic" } else { "true" })));
+        }
+        if let Some(m) = self.accuracy {
+            v.push(("accuracy", json!(m)));
         }
         if let Some(p) = &self.path {
             v.push(("path", json!(p)));
@@ -298,7 +304,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Export Photo Locations",
         [],
         None,
-        "{path?: .kml | .geojson file (none: the text is returned), format?: kml | geojson (default: from the path's extension), ids? (default: the selection when several photos are selected, else the photos shown), track?: bool (true: a line through the points in capture order, `kind: track`), name?: the document's name} → {written, skipped: photos without a usable location, format, track, path | text} — one point per photo in capture order: name (title, else file name), capture time, lat/lon, altitude, heading (and whether magnetic), file path",
+        "{path?: .kml | .geojson file (none: the text is returned), format?: kml | geojson (default: from the path's extension), ids? (default: the selection when several photos are selected, else the photos shown), track?: bool (true: a line through the points in capture order, `kind: track`), name?: the document's name} → {written, skipped: photos without a usable location, format, track, path | text} — one point per photo in capture order: name (title, else file name), capture time, lat/lon, altitude, heading (and whether magnetic), accuracy (metres), file path",
         always,
         export_locations
     )]

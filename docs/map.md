@@ -93,6 +93,7 @@ Each photo is one point, in capture order, with:
 | Latitude, longitude | `<coordinates>lon,lat[,alt]</coordinates>` | `coordinates: [lon, lat, alt?]` |
 | Altitude (metres above sea level), when known | in the coordinates (`altitudeMode` absolute) and `altitude` | in the coordinates and `altitude` |
 | Heading (degrees from north) and `headingRef` (`true` or `magnetic`), when recorded | `ExtendedData` | properties |
+| `accuracy`: how far off the position may be (metres, from `GPSHPositioningError`), when recorded | `ExtendedData` | properties |
 | Photo id, file name and the original's path | `ExtendedData` (`id`, `fileName`, `path`) | `id`, `fileName`, `path` |
 
 Every photo point has `kind: photo`. A **track** through the points in capture order is added
