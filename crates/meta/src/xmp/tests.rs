@@ -513,6 +513,37 @@ fn gps_heading() {
     assert!(!write_xmp(&m, None).contains("GPSImgDirection"));
 }
 
+/// The horizontal positioning error round-trips; a zero denominator, a negative or an absurd
+/// value is none, and an XMP position without one keeps the file's.
+#[test]
+fn gps_positioning_error() {
+    let g = Gps { latitude: 40.0, longitude: -75.0, accuracy: Some(6.5), ..Default::default() };
+    let m = Metadata { gps: Some(g), ..Default::default() };
+    let written = write_xmp(&m, None);
+    assert!(written.contains("exif:GPSHPositioningError"), "{written}");
+    assert_eq!(parse_xmp(&written).unwrap().metadata.gps.unwrap().accuracy, Some(6.5));
+    let read = |extra: &str| {
+        let x = format!(
+            r#"<rdf:Description xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+                xmlns:exif="http://ns.adobe.com/exif/1.0/" exif:GPSLatitude="40,0N" exif:GPSLongitude="75,0W" {extra}/>"#
+        );
+        parse_xmp(&x).unwrap().metadata.gps.unwrap().accuracy
+    };
+    assert_eq!(read(r#"exif:GPSHPositioningError="1300/100""#), Some(13.0));
+    assert_eq!(read(r#"exif:GPSHPositioningError="5/0""#), None, "zero denominator");
+    assert_eq!(read(r#"exif:GPSHPositioningError="-5""#), None, "negative");
+    assert_eq!(read(r#"exif:GPSHPositioningError="NaN""#), None);
+    assert_eq!(read(r#"exif:GPSHPositioningError="50000""#), None, "wider than any fix worth drawing");
+    assert_eq!(read(""), None);
+    // none: none written
+    let m = Metadata { gps: Some(Gps { latitude: 1.0, longitude: 2.0, ..Default::default() }), ..Default::default() };
+    assert!(!write_xmp(&m, None).contains("GPSHPositioningError"));
+    // an XMP position without one keeps the file's
+    let mut file = Metadata { gps: Some(g), ..Default::default() };
+    file.overlay_user_fields(&Metadata { gps: Some(Gps { latitude: 40.0, longitude: -75.0, ..Default::default() }), ..Default::default() });
+    assert_eq!(file.gps.unwrap().accuracy, Some(6.5));
+}
+
 /// A DJI drone's gimbal yaw (−180…180) is the heading when there is no GPSImgDirection, and the
 /// drone namespace is never written back.
 #[test]

@@ -23,6 +23,7 @@ pub(super) fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         gps_altitude: m.gps.and_then(|g| g.altitude).filter(|a| a.is_finite()),
         gps_direction: m.gps.and_then(|g| g.direction).and_then(lightcraft_meta::Gps::bearing).map(|d| d as f32),
         gps_direction_magnetic: m.gps.is_some_and(|g| g.direction.is_some() && g.direction_magnetic),
+        gps_accuracy: m.gps.and_then(|g| g.accuracy).and_then(lightcraft_meta::Gps::accuracy_metres),
         title: m.title.clone().unwrap_or_default(),
         caption: m.caption.clone().unwrap_or_default(),
         copyright: m.copyright.clone().unwrap_or_default(),

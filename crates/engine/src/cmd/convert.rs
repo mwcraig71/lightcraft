@@ -240,9 +240,10 @@ fn fill_missing_meta(id: lightcraft_catalog::PhotoId, ph: &lightcraft_catalog::P
     m.aperture = m.aperture.or(src.aperture);
     m.iso = m.iso.or(src.iso);
     m.gps = m.gps.or(src.gps);
-    // altitude and heading, read since: kept with the file's own position (not a position set by hand)
+    // altitude, heading and accuracy, read since: kept with the file's own position (not a position set by hand)
     if m.gps == src.gps {
         m.gps_altitude = m.gps_altitude.or(src.gps_altitude);
+        m.gps_accuracy = m.gps_accuracy.or(src.gps_accuracy);
         if m.gps_direction.is_none() {
             (m.gps_direction, m.gps_direction_magnetic) = (src.gps_direction, src.gps_direction_magnetic);
         }
@@ -448,9 +449,11 @@ mod tests {
         info.meta.gps_altitude = Some(12.0);
         info.meta.gps_direction = Some(90.0);
         info.meta.gps_direction_magnetic = true;
+        info.meta.gps_accuracy = Some(6.0);
         let ops = fill_missing_meta(PhotoId(1), &ph, &info);
         let Some(Op::SetMeta { meta, .. }) = ops.first() else { panic!("{ops:?}") };
         assert_eq!((meta.gps_altitude, meta.gps_direction, meta.gps_direction_magnetic), (Some(12.0), Some(90.0), true));
+        assert_eq!(meta.gps_accuracy, Some(6.0), "and its positioning error");
         // moved by hand: the file's altitude and heading belong to another place
         ph.meta.gps = Some((41.0, -75.0));
         assert!(fill_missing_meta(PhotoId(1), &ph, &info).is_empty());

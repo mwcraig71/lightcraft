@@ -101,6 +101,7 @@ pub const GPS_TIME_STAMP: u16 = 7;
 pub const GPS_IMG_DIRECTION_REF: u16 = 16;
 pub const GPS_IMG_DIRECTION: u16 = 17;
 pub const GPS_DATE_STAMP: u16 = 29;
+pub const GPS_H_POSITIONING_ERROR: u16 = 31;
 
 // --- DNG
 pub const DNG_VERSION: u16 = 50706;

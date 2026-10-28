@@ -1223,7 +1223,14 @@ fn same_folder_as_original_refuses_photos_without_a_folder() {
 #[test]
 fn gps_heading_and_altitude_survive_import_and_export() {
     let dir = temp_dir("export-heading");
-    let gps = lightcraft_meta::Gps { latitude: 37.82, longitude: -122.478, altitude: Some(67.0), direction: Some(355.5), direction_magnetic: false };
+    let gps = lightcraft_meta::Gps {
+        latitude: 37.82,
+        longitude: -122.478,
+        altitude: Some(67.0),
+        direction: Some(355.5),
+        direction_magnetic: false,
+        accuracy: Some(6.0),
+    };
     let jpg = dir.join("Phone.jpg");
     let img = lightcraft_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
     let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata { gps: Some(gps), ..Default::default() });
@@ -1235,19 +1242,21 @@ fn gps_heading_and_altitude_survive_import_and_export() {
     let id = s.catalog.photos().next().unwrap().id;
     let m = s.catalog.photo(id).unwrap().meta.clone();
     assert_eq!((m.gps_altitude, m.gps_direction, m.gps_direction_magnetic), (Some(67.0), Some(355.5), false));
+    assert_eq!(m.gps_accuracy, Some(6.0), "the positioning error is imported");
     // the sidecar and an exported JPEG carry them
     let side = crate::sidecar::sidecar_packet(s.catalog.photo(id).unwrap(), &s.catalog);
     let back = lightcraft_meta::parse_xmp(&side).unwrap().metadata.gps.unwrap();
-    assert_eq!((back.altitude, back.direction), (Some(67.0), Some(355.5)));
+    assert_eq!((back.altitude, back.direction, back.accuracy), (Some(67.0), Some(355.5), Some(6.0)));
     let out = export_photo(&mut s, id, &ExportOptions::from_json(&json!({"format": "jpeg"})), 1).unwrap();
     let g = lightcraft_meta::extract(&out.bytes).gps.unwrap();
     assert_eq!(g.altitude, Some(67.0), "altitude is no longer dropped on export");
     assert!((g.direction.unwrap() - 355.5).abs() < 1e-3);
+    assert_eq!(g.accuracy, Some(6.0), "and the positioning error");
     // a position typed in keeps the heading but not the altitude; no location clears both
     s.execute("photo.setMeta", &json!({"ids": [id.0], "gps": [37.821, -122.478]})).unwrap();
     let m = s.catalog.photo(id).unwrap().meta.clone();
-    assert_eq!((m.gps_altitude, m.gps_direction), (None, Some(355.5)));
+    assert_eq!((m.gps_altitude, m.gps_direction, m.gps_accuracy), (None, Some(355.5), None));
     s.execute("photo.setMeta", &json!({"ids": [id.0], "gps": null})).unwrap();
     let m = s.catalog.photo(id).unwrap().meta.clone();
-    assert_eq!((m.gps, m.gps_altitude, m.gps_direction), (None, None, None));
+    assert_eq!((m.gps, m.gps_altitude, m.gps_direction, m.gps_accuracy), (None, None, None, None));
 }
