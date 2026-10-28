@@ -4,28 +4,35 @@
 //! on screen merge into a cluster with a count (a click zooms to it); far out, each site is one
 //! dot with its name. See docs/map.md.
 //!
-//! Tiles (OpenStreetMap streets or USGS imagery) come from [`crate::Services::map_tiles`] and
-//! only once the user has turned them on (Settings ▸ Map, or the prompt the first time): until
-//! then, and offline, the pins draw on a plain background with a scale bar.
+//! Tiles (OpenStreetMap streets, USGS or Esri imagery, or a tile service of the user's own) come
+//! from [`crate::Services::map_tiles`] and only once the user has turned them on (Settings ▸ Map,
+//! or the prompt the first time): until then, and offline, the pins draw on a plain background
+//! with a scale bar.
 //!
+//! - `custom`: the user's own tile service (its settings, `map.setCustomSource`).
 //! - `pins`: which photos have a pin, their order, sites and screen-space clustering.
 //! - `widget`: the slippy map (pan, zoom, tiles, scale bar, attribution, controls).
 //! - `view`: the view around it (status line, filmstrip, prompts).
 //! - `mini`: the Info panel's mini-map of the active photo's place.
 
+mod custom;
 mod mini;
 mod pins;
 mod settings;
 mod view;
 mod widget;
 
+use std::borrow::Cow;
+
 use lightcraft_catalog::PhotoId;
+use lightcraft_tiles::TileSource;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::state::ViewMode;
 
+pub use custom::{CustomTiles, HIDDEN_KEY, hide_key, keep_hidden_key};
 pub use mini::{MINI_MAP_H, mini_map};
 pub use pins::{Pin, cluster};
 pub use settings::settings_tab;
@@ -78,17 +85,25 @@ pub enum MapTiles {
     Ask,
     Off,
     Street,
+    /// USGS The National Map (United States).
     Imagery,
+    /// Esri World Imagery.
+    Esri,
+    /// The user's own tile service ([`CustomTiles`]).
+    Custom,
 }
 
 impl MapTiles {
-    pub const ALL: [MapTiles; 3] = [MapTiles::Off, MapTiles::Street, MapTiles::Imagery];
+    pub const ALL: [MapTiles; 5] = [MapTiles::Off, MapTiles::Street, MapTiles::Imagery, MapTiles::Esri, MapTiles::Custom];
 
-    /// The tile server, when tiles are on.
-    pub fn source(self) -> Option<&'static lightcraft_tiles::TileSource> {
+    /// The tile server, when tiles are on; `None` too for a custom source that isn't set up
+    /// ([`CustomTiles::source`] says why).
+    pub fn source(self, custom: &CustomTiles) -> Option<Cow<'static, TileSource>> {
         match self {
-            MapTiles::Street => Some(&lightcraft_tiles::source::OSM),
-            MapTiles::Imagery => Some(&lightcraft_tiles::source::USGS_IMAGERY),
+            MapTiles::Street => Some(Cow::Borrowed(&lightcraft_tiles::source::OSM)),
+            MapTiles::Imagery => Some(Cow::Borrowed(&lightcraft_tiles::source::USGS_IMAGERY)),
+            MapTiles::Esri => Some(Cow::Borrowed(&lightcraft_tiles::source::ESRI_IMAGERY)),
+            MapTiles::Custom => custom.source().ok().map(Cow::Owned),
             MapTiles::Ask | MapTiles::Off => None,
         }
     }
@@ -100,19 +115,24 @@ impl MapTiles {
             MapTiles::Off => "off",
             MapTiles::Street => "street",
             MapTiles::Imagery => "imagery",
+            MapTiles::Esri => "esri",
+            MapTiles::Custom => "custom",
         }
     }
 
     pub fn from_id(id: &str) -> Option<MapTiles> {
-        [MapTiles::Ask, MapTiles::Off, MapTiles::Street, MapTiles::Imagery].into_iter().find(|m| m.id() == id)
+        [MapTiles::Ask, MapTiles::Off, MapTiles::Street, MapTiles::Imagery, MapTiles::Esri, MapTiles::Custom].into_iter().find(|m| m.id() == id)
     }
 
-    /// Menu / button label (English; translated where shown).
+    /// Menu / button label (English; translated where shown). Where the custom source is set
+    /// up, its own name is shown instead ([`CustomTiles::label`]).
     pub fn label(self) -> &'static str {
         match self {
             MapTiles::Ask | MapTiles::Off => "Off",
             MapTiles::Street => "Street",
             MapTiles::Imagery => "Imagery",
+            MapTiles::Esri => "Esri",
+            MapTiles::Custom => "Custom",
         }
     }
 }
@@ -151,11 +171,18 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         },
         "map.setTileSource" => {
             let Some(tiles) = p.get("source").and_then(Value::as_str).and_then(MapTiles::from_id).filter(|t| *t != MapTiles::Ask) else {
-                return Some(Err("map.setTileSource: `source` must be off, street or imagery".into()));
+                return Some(Err("map.setTileSource: `source` must be off, street, imagery, esri or custom".into()));
             };
+            if tiles == MapTiles::Custom
+                && let Err(e) = app.ui.settings.map_custom.source()
+            {
+                let why = format!("map.setTileSource: the custom tile source isn't set up (Settings ▸ Map ▸ Custom, or map.setCustomSource): {e}");
+                return Some(Err(why));
+            }
             app.ui.settings.map_tiles = tiles;
             Ok(json!({"source": tiles.id()}))
         }
+        "map.setCustomSource" => custom::set_custom_source(app, p),
         "map.clearCache" => clear_cache(app),
         _ => return None,
     })

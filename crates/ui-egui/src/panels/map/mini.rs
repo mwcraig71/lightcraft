@@ -36,11 +36,11 @@ pub fn mini_map(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, width: 
     widget::draw_background(ui, &vp);
     let mut attribution = None;
     view::apply_cache_limit(app, ui.ctx());
-    if let (Some(source), Some(provider)) = (app.ui.settings.map_tiles.source(), app.services.map_tiles.as_deref()) {
-        if widget::draw_tiles(ui, &vp, provider, source) {
+    if let (Some(source), Some(provider)) = (app.ui.settings.map_tiles.source(&app.ui.settings.map_custom), app.services.map_tiles.as_deref()) {
+        if widget::draw_tiles(ui, &vp, provider, &source) {
             view::note_loading(ui.ctx());
         }
-        attribution = Some(source.attribution);
+        attribution = Some(source.attribution.to_string());
     }
     let painter = ui.painter_at(rect);
     let at = vp.screen_of(world);
@@ -54,7 +54,7 @@ pub fn mini_map(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, width: 
     widget::draw_pin(&painter, at, false, t.accent);
     // the attribution bottom-right, the scale bar above it (a narrow panel has no room beside it)
     let mut bar = vp;
-    if let Some(a) = attribution {
+    if let Some(a) = &attribution {
         let r = widget::draw_attribution_as(ui, &vp, a, 9.5, "info:miniMapAttribution");
         bar.rect = Rect::from_min_max(rect.min, pos2(rect.right(), r.top()));
     }

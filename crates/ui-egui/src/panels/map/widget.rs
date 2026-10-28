@@ -3,6 +3,7 @@
 //! children load), a scale bar bottom-left and the tile source's attribution bottom-right
 //! whenever its tiles are drawn.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -94,21 +95,25 @@ impl Viewport {
 /// Uploaded tile textures, least recently used dropped first.
 #[derive(Default)]
 struct Textures {
-    map: HashMap<(&'static str, TileId), (egui::TextureHandle, u64)>,
+    /// By source id and tile: a custom source's id changes with its URL template, so a new
+    /// template never shows the old one's tiles.
+    map: HashMap<TexKey, (egui::TextureHandle, u64)>,
     tick: u64,
 }
 
+type TexKey = (Cow<'static, str>, TileId);
+
 impl Textures {
-    fn get(&mut self, key: (&'static str, TileId)) -> Option<egui::TextureId> {
+    fn get(&mut self, key: &TexKey) -> Option<egui::TextureId> {
         self.tick += 1;
         let tick = self.tick;
-        self.map.get_mut(&key).map(|(t, used)| {
+        self.map.get_mut(key).map(|(t, used)| {
             *used = tick;
             t.id()
         })
     }
 
-    fn insert(&mut self, ctx: &egui::Context, key: (&'static str, TileId), img: &lightcraft_tiles::TileImage) -> Option<egui::TextureId> {
+    fn insert(&mut self, ctx: &egui::Context, key: TexKey, img: &lightcraft_tiles::TileImage) -> Option<egui::TextureId> {
         if img.rgba.len() != img.width.saturating_mul(img.height).saturating_mul(4) {
             return None;
         }
@@ -119,7 +124,7 @@ impl Textures {
         self.tick += 1;
         self.map.insert(key, (tex, self.tick));
         while self.map.len() > TEXTURES {
-            let Some(oldest) = self.map.iter().min_by_key(|(_, (_, u))| *u).map(|(k, _)| *k) else { break };
+            let Some(oldest) = self.map.iter().min_by_key(|(_, (_, u))| *u).map(|(k, _)| k.clone()) else { break };
             self.map.remove(&oldest);
         }
         Some(id)
@@ -133,7 +138,7 @@ type SharedTextures = Arc<Mutex<Textures>>;
 /// Several maps may draw in one pass (the Map view and the Info panel's mini-map): the provider's
 /// frame is closed once, as the first of them draws in the next pass, so one map's tiles don't
 /// cancel the other's.
-pub fn draw_tiles(ui: &egui::Ui, vp: &Viewport, provider: &dyn TileProvider, source: &'static TileSource) -> bool {
+pub fn draw_tiles(ui: &egui::Ui, vp: &Viewport, provider: &dyn TileProvider, source: &TileSource) -> bool {
     let ctx = ui.ctx();
     let pass = ctx.cumulative_pass_nr();
     let drawn = egui::Id::unique("lc-map-tiles-pass");
@@ -150,8 +155,8 @@ pub fn draw_tiles(ui: &egui::Ui, vp: &Viewport, provider: &dyn TileProvider, sou
     for p in placed {
         let (native, uv) = source.native(p.tile);
         let rect = Rect::from_min_size(vp.rect.min + vec2(p.left as f32, p.top as f32), vec2(p.size as f32, p.size as f32));
-        let key = (source.id, native);
-        let tex = match textures.get(key) {
+        let key = (source.id.clone(), native);
+        let tex = match textures.get(&key) {
             Some(t) => Some(t),
             None => match provider.get(source, native) {
                 TileState::Ready(img) => textures.insert(ctx, key, &img),
@@ -169,7 +174,7 @@ pub fn draw_tiles(ui: &egui::Ui, vp: &Viewport, provider: &dyn TileProvider, sou
         // a coarser tile already on hand stands in, scaled up
         for up in 1..=FALLBACK_LEVELS.min(native.z) {
             let (parent, sub) = native.ancestor(up);
-            if let Some(t) = textures.get((source.id, parent)) {
+            if let Some(t) = textures.get(&(source.id.clone(), parent)) {
                 let (u, v, s) = uv;
                 let nested = (sub.0 + u * sub.2, sub.1 + v * sub.2, s * sub.2);
                 painter.image(t, rect, uv_rect(nested), Color32::WHITE);
