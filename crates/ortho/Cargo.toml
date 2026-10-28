@@ -1,0 +1,28 @@
+[package]
+name = "lightcraft-ortho"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LightCraft drone orthomosaics: GeoTIFF georeferencing, map projections, and a Web Mercator tile pyramid built from windowed reads (L2)"
+
+[lints]
+workspace = true
+
+[dependencies]
+lightcraft-tiles = { workspace = true }
+# reads tiled / striped, BigTIFF, LZW / Deflate / JPEG / uncompressed TIFFs from a file a window at a time (pure Rust)
+tiff = { workspace = true }
+png = { workspace = true }
+jpeg-encoder = { workspace = true }
+zune-jpeg = { workspace = true }
+zune-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+## `testdata`: a minimal GeoTIFF writer for tests and demos (synthetic orthomosaics; never media in the repo).
+testdata = []
+
+[dev-dependencies]
+proptest = { workspace = true }

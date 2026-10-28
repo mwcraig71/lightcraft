@@ -3852,6 +3852,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightcraft-ortho"
+version = "0.14.0"
+dependencies = [
+ "jpeg-encoder",
+ "lightcraft-tiles",
+ "png",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tiff",
+ "zune-core",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "lightcraft-pipeline"
 version = "0.14.0"
 dependencies = [
