@@ -160,8 +160,10 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         }
     }
 
+    // the user's markers, above the pins: a marker under the pointer takes its clicks
+    let on_marker = super::markers::layer(app, ui, &vp, &resp);
     let pointer = resp.hover_pos();
-    let under = pointer.and_then(|p| widget::hit(&vp, &clusters, p));
+    let under = if on_marker { None } else { pointer.and_then(|p| widget::hit(&vp, &clusters, p)) };
     if resp.clicked()
         && let Some(i) = under
         && let Some(c) = clusters.get(i)
@@ -191,6 +193,7 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     {
         custom_not_set_up(ui, rect, &e);
     }
+    super::markers::card(app, ui, rect);
     if tiles == MapTiles::Ask {
         ask(app, ui, rect);
     } else if pins.pins.is_empty() {

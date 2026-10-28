@@ -6,7 +6,7 @@
 
 use serde_json::{Map, Value, json};
 
-use lightcraft_catalog::{Photo, PhotoId, Source};
+use lightcraft_catalog::{Marker, Photo, PhotoId, Source};
 
 use super::{CommandSpec, always, bad, bool_or, cmd, str_param};
 use crate::{EngineError, Result, Session};
@@ -162,14 +162,81 @@ pub fn xml_escape(s: &str) -> String {
     out
 }
 
+/// A map marker in the export (`kind: marker`): its point, title, note and what is attached.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarkerPoint {
+    pub id: u64,
+    /// The marker's title, else "Marker <id>".
+    pub name: String,
+    pub lat: f64,
+    pub lon: f64,
+    pub note: String,
+    /// The attached files' names.
+    pub attachments: Vec<String>,
+    /// The photos attached at the marker.
+    pub photos: Vec<u64>,
+}
+
+impl MarkerPoint {
+    pub fn of(m: &Marker) -> Option<MarkerPoint> {
+        if !usable((m.lat, m.lon)) {
+            return None;
+        }
+        let title = m.title.trim();
+        Some(MarkerPoint {
+            id: m.id.0,
+            name: if title.is_empty() { format!("Marker {}", m.id.0) } else { title.to_string() },
+            lat: m.lat,
+            lon: m.lon,
+            note: m.note.clone(),
+            attachments: m.attachments.iter().map(|a| a.file_name.clone()).collect(),
+            photos: m.photos.iter().map(|p| p.0).collect(),
+        })
+    }
+
+    /// Its properties, in order, for both formats (lists are written `; `-joined in KML).
+    pub fn properties(&self) -> Vec<(&'static str, Value)> {
+        let mut v = vec![("kind", json!("marker")), ("name", json!(self.name)), ("id", json!(self.id))];
+        if !self.note.is_empty() {
+            v.push(("note", json!(self.note)));
+        }
+        v.push(("latitude", json!(self.lat)));
+        v.push(("longitude", json!(self.lon)));
+        if !self.attachments.is_empty() {
+            v.push(("attachments", json!(self.attachments)));
+        }
+        if !self.photos.is_empty() {
+            v.push(("photos", json!(self.photos)));
+        }
+        v
+    }
+}
+
+/// The library's markers with a usable position, by id.
+pub fn marker_points(s: &Session) -> Vec<MarkerPoint> {
+    s.catalog.markers().filter_map(MarkerPoint::of).collect()
+}
+
+/// A property's text in KML `ExtendedData`: numbers as the coordinates print them (118, not
+/// 118.0), lists joined with `; `.
+fn kml_text(value: Value) -> String {
+    match value {
+        Value::String(t) => t,
+        Value::Number(n) if n.is_f64() => n.as_f64().map_or_else(|| n.to_string(), |f| f.to_string()),
+        Value::Array(a) => a.into_iter().map(kml_text).collect::<Vec<_>>().join("; "),
+        v => v.to_string(),
+    }
+}
+
 /// The track has altitudes only when every point has one (a mix would drop some to sea level).
 fn track_has_altitude(pts: &[Point]) -> bool {
     pts.iter().all(|p| p.altitude.is_some())
 }
 
-/// KML 2.2: a Folder of photo Placemarks (TimeStamp, ExtendedData) and, with `track`, a
-/// Placemark with the LineString through them.
-pub fn to_kml(pts: &[Point], title: &str, track: bool) -> String {
+/// KML 2.2: a Folder of photo Placemarks (TimeStamp, ExtendedData), a Folder of the map's
+/// markers when there are any and, with `track`, a Placemark with the LineString through the
+/// photos.
+pub fn to_kml(pts: &[Point], markers: &[MarkerPoint], title: &str, track: bool) -> String {
     let mut k = String::new();
     k.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<kml xmlns=\"http://www.opengis.net/kml/2.2\">\n<Document>\n");
     k.push_str(&format!("  <name>{}</name>\n", xml_escape(title)));
@@ -186,13 +253,7 @@ pub fn to_kml(pts: &[Point], title: &str, track: bool) -> String {
             if name == "name" {
                 continue;
             }
-            // numbers as the coordinates print them (118, not 118.0)
-            let text = match value {
-                Value::String(t) => t,
-                Value::Number(n) if n.is_f64() => n.as_f64().map_or_else(|| n.to_string(), |f| f.to_string()),
-                v => v.to_string(),
-            };
-            k.push_str(&format!("        <Data name=\"{name}\"><value>{}</value></Data>\n", xml_escape(&text)));
+            k.push_str(&format!("        <Data name=\"{name}\"><value>{}</value></Data>\n", xml_escape(&kml_text(value))));
         }
         k.push_str("      </ExtendedData>\n");
         match p.altitude {
@@ -204,6 +265,24 @@ pub fn to_kml(pts: &[Point], title: &str, track: bool) -> String {
         k.push_str("    </Placemark>\n");
     }
     k.push_str("  </Folder>\n");
+    if !markers.is_empty() {
+        k.push_str("  <Folder>\n    <name>Markers</name>\n");
+        for m in markers {
+            k.push_str("    <Placemark>\n");
+            k.push_str(&format!("      <name>{}</name>\n", xml_escape(&m.name)));
+            if !m.note.is_empty() {
+                k.push_str(&format!("      <description>{}</description>\n", xml_escape(&m.note)));
+            }
+            k.push_str("      <ExtendedData>\n");
+            for (name, value) in m.properties().into_iter().filter(|(n, _)| *n != "name") {
+                k.push_str(&format!("        <Data name=\"{name}\"><value>{}</value></Data>\n", xml_escape(&kml_text(value))));
+            }
+            k.push_str("      </ExtendedData>\n");
+            k.push_str(&format!("      <Point><coordinates>{},{}</coordinates></Point>\n", m.lon, m.lat));
+            k.push_str("    </Placemark>\n");
+        }
+        k.push_str("  </Folder>\n");
+    }
     if track && pts.len() >= 2 {
         let with_alt = track_has_altitude(pts);
         k.push_str("  <Placemark>\n    <name>Track</name>\n    <styleUrl>#track</styleUrl>\n");
@@ -233,8 +312,8 @@ fn position(p: &Point, with_alt: bool) -> Value {
 }
 
 /// GeoJSON (RFC 7946): a FeatureCollection of Point features and, with `track`, a LineString
-/// feature whose `kind` is `track` (the photos' `kind` is `photo`).
-pub fn to_geojson(pts: &[Point], title: &str, track: bool) -> Value {
+/// feature whose `kind` is `track` (the photos' `kind` is `photo`, the markers' `marker`).
+pub fn to_geojson(pts: &[Point], markers: &[MarkerPoint], title: &str, track: bool) -> Value {
     let mut features: Vec<Value> = pts
         .iter()
         .map(|p| {
@@ -242,6 +321,10 @@ pub fn to_geojson(pts: &[Point], title: &str, track: bool) -> Value {
             json!({"type": "Feature", "geometry": {"type": "Point", "coordinates": position(p, true)}, "properties": props})
         })
         .collect();
+    features.extend(markers.iter().map(|m| {
+        let props: Map<String, Value> = m.properties().into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+        json!({"type": "Feature", "geometry": {"type": "Point", "coordinates": [m.lon, m.lat]}, "properties": props})
+    }));
     if track && pts.len() >= 2 {
         let with_alt = track_has_altitude(pts);
         let line: Vec<Value> = pts.iter().map(|p| position(p, with_alt)).collect();
@@ -274,19 +357,21 @@ fn export_locations(s: &mut Session, p: &Value) -> Result<Value> {
     let track = bool_or(p, "track", true);
     let ids = export_targets(s, p)?;
     let (pts, skipped) = points(s, &ids);
-    if pts.is_empty() {
+    let markers = if bool_or(p, "markers", true) { marker_points(s) } else { Vec::new() };
+    if pts.is_empty() && markers.is_empty() {
         return Err(bad(C, format!("none of the {} photo(s) has a location", ids.len())));
     }
     let title = str_param(p, "name").map(str::trim).filter(|t| !t.is_empty()).unwrap_or("Photo locations");
     let text = match format {
-        Format::Kml => to_kml(&pts, title, track),
+        Format::Kml => to_kml(&pts, &markers, title, track),
         Format::GeoJson => {
-            let mut t = serde_json::to_string_pretty(&to_geojson(&pts, title, track)).map_err(|e| EngineError::Other(e.to_string()))?;
+            let mut t = serde_json::to_string_pretty(&to_geojson(&pts, &markers, title, track)).map_err(|e| EngineError::Other(e.to_string()))?;
             t.push('\n');
             t
         }
     };
-    let mut r = json!({"written": pts.len(), "skipped": skipped, "format": format.name(), "track": track && pts.len() >= 2});
+    let mut r =
+        json!({"written": pts.len(), "markers": markers.len(), "skipped": skipped, "format": format.name(), "track": track && pts.len() >= 2});
     match path {
         Some(path) => {
             lightcraft_catalog::safe_file::write_atomic(std::path::Path::new(path), text.as_bytes())
@@ -304,7 +389,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Export Photo Locations",
         [],
         None,
-        "{path?: .kml | .geojson file (none: the text is returned), format?: kml | geojson (default: from the path's extension), ids? (default: the selection when several photos are selected, else the photos shown), track?: bool (true: a line through the points in capture order, `kind: track`), name?: the document's name} → {written, skipped: photos without a usable location, format, track, path | text} — one point per photo in capture order: name (title, else file name), capture time, lat/lon, altitude, heading (and whether magnetic), accuracy (metres), file path",
+        "{path?: .kml | .geojson file (none: the text is returned), format?: kml | geojson (default: from the path's extension), ids? (default: the selection when several photos are selected, else the photos shown), track?: bool (true: a line through the points in capture order, `kind: track`), markers?: bool (true: the Map view's markers too, `kind: marker`, with title, note, attachment file names and photo ids), name?: the document's name} → {written, markers, skipped: photos without a usable location, format, track, path | text} — one point per photo in capture order: name (title, else file name), capture time, lat/lon, altitude, heading (and whether magnetic), accuracy (metres), file path",
         always,
         export_locations
     )]

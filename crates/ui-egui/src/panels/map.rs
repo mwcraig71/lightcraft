@@ -14,8 +14,10 @@
 //! - `widget`: the slippy map (pan, zoom, tiles, scale bar, attribution, controls).
 //! - `view`: the view around it (status line, filmstrip, prompts).
 //! - `mini`: the Info panel's mini-map of the active photo's place.
+//! - `markers`: the user's markers with attached files, and their card.
 
 mod custom;
+mod markers;
 mod mini;
 mod pins;
 mod settings;
@@ -33,6 +35,7 @@ use crate::LightcraftApp;
 use crate::state::ViewMode;
 
 pub use custom::{CustomTiles, HIDDEN_KEY, hide_key, keep_hidden_key};
+pub use markers::{MarkerUi, drop_hint, poll as poll_markers, take_drop};
 pub use mini::{MINI_MAP_H, mini_map};
 pub use pins::{Pin, cluster};
 pub use settings::settings_tab;
@@ -68,11 +71,23 @@ pub struct MapState {
     /// Saved like `fitted`, so restoring the UI state (`ui.set`) doesn't widen it again.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub focus: Vec<u64>,
+    /// The markers' card and context menu (not saved).
+    #[serde(skip)]
+    pub markers: MarkerUi,
 }
 
 impl Default for MapState {
     fn default() -> Self {
-        MapState { center: [0.5, 0.5], zoom: 2.0, track: true, fit_pending: true, fitted: None, followed: None, focus: Vec::new() }
+        MapState {
+            center: [0.5, 0.5],
+            zoom: 2.0,
+            track: true,
+            fit_pending: true,
+            fitted: None,
+            followed: None,
+            focus: Vec::new(),
+            markers: MarkerUi::default(),
+        }
     }
 }
 
@@ -143,6 +158,9 @@ pub const DEFAULT_CACHE_MB: u32 = 500;
 
 /// `view.map` and the `map.*` commands; `None` for any other id.
 pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
+    if let Some(r) = markers::run(app, id, p) {
+        return Some(r);
+    }
     Some(match id {
         "view.map" if p.get("photo").is_some_and(|v| !v.is_null()) => open_at_photo(app, p.get("photo")),
         "view.map" => {

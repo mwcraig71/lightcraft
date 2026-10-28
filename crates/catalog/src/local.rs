@@ -349,6 +349,7 @@ impl Op {
             Op::SetAlbumCover { cover, .. } => cover.iter().for_each(|p| out(*p)),
             Op::AddStack { stack } => stack.photos.iter().for_each(|p| out(*p)),
             Op::Batch { ops } => ops.iter().for_each(|o| o.photo_ids(out)),
+            Op::SetMarker { marker, .. } => marker.iter().flat_map(|m| m.photos.iter()).for_each(|p| out(*p)),
             Op::RemoveAlbum { .. }
             | Op::RenameAlbum { .. }
             | Op::MoveAlbum { .. }

@@ -30,6 +30,10 @@ fn lines(app: &LightcraftApp, paths: Vec<String>, unknown: bool) -> Vec<String> 
     if app.ui.dialog.is_some() {
         return vec![crate::i18n::tr("Close the open dialog to drop files here").to_string()];
     }
+    // the Map view attaches what is dropped on it (see `panels::map::take_drop`)
+    if let Some(hint) = crate::panels::map::drop_hint(app, paths.len().max(1)) {
+        return vec![hint];
+    }
     let drop = classify(paths);
     let mut out = Vec::new();
     let plural = |n: usize| if n == 1 { "" } else { "s" };
@@ -89,11 +93,14 @@ pub fn show(app: &LightcraftApp, ctx: &Context) {
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
     let painter = ctx.layer_painter(egui::LayerId::new(Order::Tooltip, egui::Id::unique("drop-overlay")));
-    painter.rect_filled(screen, 0.0, Color32::from_black_alpha(150));
+    // over the Map view the map stays visible: the drop lands where the pointer is
+    let on_map = crate::panels::map::drop_hint(app, 1).is_some() && app.ui.dialog.is_none();
+    painter.rect_filled(screen, 0.0, Color32::from_black_alpha(if on_map { 40 } else { 150 }));
     painter.rect_stroke(screen.shrink(10.0), 12.0, Stroke::new(2.0, t.accent), StrokeKind::Inside);
     let galleys: Vec<_> = lines.into_iter().map(|l| painter.layout(l, t.semibold(18.0), t.text, (screen.width() - 120.0).max(200.0))).collect();
     let (w, h) = galleys.iter().fold((0.0f32, 0.0f32), |(w, h), g| (w.max(g.size().x), h + g.size().y + 8.0));
-    let card = Rect::from_center_size(screen.center(), vec2(w + 64.0, h + 40.0));
+    let center = if on_map { egui::pos2(screen.center().x, screen.top() + 60.0 + h / 2.0) } else { screen.center() };
+    let card = Rect::from_center_size(center, vec2(w + 64.0, h + 40.0));
     painter.rect_filled(card, 10.0, t.chrome);
     painter.rect_stroke(card, 10.0, Stroke::new(1.0, t.accent), StrokeKind::Inside);
     let mut y = card.top() + 24.0;

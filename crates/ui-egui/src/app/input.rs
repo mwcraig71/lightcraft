@@ -69,6 +69,8 @@ impl LightcraftApp {
             self.toast(ctx, crate::i18n::tr("Close the open dialog, then drop the files again"));
             return;
         }
+        // on the Map view the files attach at the point they are dropped on
+        let Some(dropped) = panels::map::take_drop(self, ctx, dropped) else { return };
         let drop = drop_overlay::classify(dropped);
         if let Some(model) = drop.models.first() {
             // no library open yet (the launch list, a library that failed to open): its licence
