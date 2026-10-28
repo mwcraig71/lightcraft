@@ -52,6 +52,10 @@ pub struct Gps {
     /// `direction` is from magnetic north (`GPSImgDirectionRef` `M`), not true north.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub direction_magnetic: bool,
+    /// How far off the position may be, in metres (EXIF/XMP `GPSHPositioningError`; phones write
+    /// it). Only values that pass [`Gps::accuracy_metres`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accuracy: Option<f64>,
 }
 
 impl Gps {
@@ -59,6 +63,15 @@ impl Gps {
     /// when it isn't a finite number within one turn either way.
     pub fn bearing(degrees: f64) -> Option<f64> {
         (degrees.is_finite() && (-360.0..=360.0).contains(&degrees)).then(|| degrees.rem_euclid(360.0) % 360.0)
+    }
+
+    /// The largest positioning error kept, in metres: anything wider is no fix worth drawing.
+    pub const MAX_ACCURACY_METRES: f64 = 10_000.0;
+
+    /// A horizontal positioning error in metres, if it is a usable one: finite, above zero and at
+    /// most [`Gps::MAX_ACCURACY_METRES`] (a zero denominator, NaN or a negative value is none).
+    pub fn accuracy_metres(metres: f64) -> Option<f64> {
+        (metres.is_finite() && metres > 0.0 && metres <= Self::MAX_ACCURACY_METRES).then_some(metres)
     }
 }
 
@@ -250,6 +263,9 @@ impl Metadata {
             }
             if g.direction.is_none() {
                 (g.direction, g.direction_magnetic) = (old.direction, old.direction_magnetic);
+            }
+            if g.accuracy.is_none() {
+                g.accuracy = old.accuracy;
             }
         }
         self.apply_camera_yaw(other.camera_yaw);

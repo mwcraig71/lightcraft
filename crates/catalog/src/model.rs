@@ -189,6 +189,10 @@ pub struct Meta {
     /// [`Meta::gps_direction`] is from magnetic north, not true north.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub gps_direction_magnetic: bool,
+    /// How far off the position may be, in metres (`GPSHPositioningError`, from phones). Left out
+    /// of the catalog JSON when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gps_accuracy: Option<f64>,
     pub title: String,
     pub caption: String,
     /// Accessibility text and long description.
@@ -217,7 +221,7 @@ pub struct Meta {
 }
 
 impl Meta {
-    /// The location as file metadata (EXIF / XMP), with its altitude and heading.
+    /// The location as file metadata (EXIF / XMP), with its altitude, heading and accuracy.
     pub fn gps_record(&self) -> Option<lightcraft_meta::Gps> {
         self.gps.map(|(latitude, longitude)| lightcraft_meta::Gps {
             latitude,
@@ -225,18 +229,20 @@ impl Meta {
             altitude: self.gps_altitude,
             direction: self.gps_direction.map(f64::from),
             direction_magnetic: self.gps_direction_magnetic && self.gps_direction.is_some(),
+            accuracy: self.gps_accuracy.and_then(lightcraft_meta::Gps::accuracy_metres),
         })
     }
 
-    /// Take the location, altitude and heading from file metadata (`None`: no location).
+    /// Take the location, altitude, heading and accuracy from file metadata (`None`: no location).
     pub fn set_gps_record(&mut self, g: Option<&lightcraft_meta::Gps>) {
         self.gps = g.map(|g| (g.latitude, g.longitude));
         self.gps_altitude = g.and_then(|g| g.altitude).filter(|a| a.is_finite());
         self.gps_direction = g.and_then(|g| g.direction).and_then(lightcraft_meta::Gps::bearing).map(|d| d as f32);
         self.gps_direction_magnetic = self.gps_direction.is_some() && g.is_some_and(|g| g.direction_magnetic);
+        self.gps_accuracy = g.and_then(|g| g.accuracy).and_then(lightcraft_meta::Gps::accuracy_metres);
     }
 
-    /// Clear the location with its altitude and heading.
+    /// Clear the location with its altitude, heading and accuracy.
     pub fn clear_gps(&mut self) {
         self.set_gps_record(None);
     }

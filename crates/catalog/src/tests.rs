@@ -1066,6 +1066,7 @@ fn gps_altitude_and_heading_are_backward_compatible() {
         altitude: Some(12.5),
         direction: Some(-90.0),
         direction_magnetic: true,
+        accuracy: None,
     }));
     assert_eq!((m.gps_altitude, m.gps_direction, m.gps_direction_magnetic), (Some(12.5), Some(270.0), true));
     let back: Meta = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
@@ -1073,4 +1074,27 @@ fn gps_altitude_and_heading_are_backward_compatible() {
     assert_eq!(back.gps_record().unwrap().direction, Some(270.0));
     m.clear_gps();
     assert_eq!(m, Meta { camera: "X".into(), title: "t".into(), ..Default::default() });
+}
+
+/// The positioning error is optional too: an old catalog loads without it, a photo without it
+/// serializes as before, and it round-trips with the location and goes when the location does.
+#[test]
+fn gps_accuracy_is_backward_compatible() {
+    let old = r#"{"camera":"X","gps":[40.0,-75.0],"gps_altitude":12.5,"title":"t"}"#;
+    let m: Meta = serde_json::from_str(old).unwrap();
+    assert_eq!((m.gps_altitude, m.gps_accuracy), (Some(12.5), None));
+    let json = serde_json::to_string(&m).unwrap();
+    assert!(!json.contains("gps_accuracy"), "{json}");
+    let mut m = m;
+    m.set_gps_record(Some(&lightcraft_meta::Gps { latitude: 40.0, longitude: -75.0, accuracy: Some(6.0), ..Default::default() }));
+    assert_eq!(m.gps_accuracy, Some(6.0));
+    let back: Meta = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+    assert_eq!(back, m);
+    assert_eq!(back.gps_record().unwrap().accuracy, Some(6.0));
+    // a hostile value from a file is none
+    m.set_gps_record(Some(&lightcraft_meta::Gps { latitude: 40.0, longitude: -75.0, accuracy: Some(f64::NAN), ..Default::default() }));
+    assert_eq!(m.gps_accuracy, None);
+    m.gps_accuracy = Some(6.0);
+    m.clear_gps();
+    assert_eq!((m.gps, m.gps_accuracy), (None, None));
 }

@@ -719,9 +719,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     if let Some(g) = gps
                         && g != m.gps
                     {
-                        // a position typed in has no altitude; the heading stays unless the location goes
+                        // a position typed in has no altitude or accuracy; the heading stays unless the location goes
                         m.gps = g;
                         m.gps_altitude = None;
+                        m.gps_accuracy = None;
                         if g.is_none() {
                             m.clear_gps();
                         }

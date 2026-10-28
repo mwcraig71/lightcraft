@@ -350,3 +350,33 @@ fn view_map_photo_param_checks_the_photo() {
     assert_eq!(r["result"]["photo"], ids[2].0, "{r}");
     assert_eq!(h.app.ui.map.zoom, crate::panels::map::PHOTO_ZOOM);
 }
+
+#[test]
+fn photos_with_a_positioning_error_get_an_accuracy_circle() {
+    let tiles = Arc::new(FakeTiles::default());
+    let mut h = demo(&tiles);
+    let ids = bridge(&mut h);
+    for (id, metres) in [(ids[0], 20.0), (ids[2], 0.5)] {
+        let mut meta = h.app.session.catalog.photo(id).unwrap().meta.clone();
+        meta.gps_accuracy = Some(metres);
+        h.app.session.commit("setup", Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+    }
+    open_map(&mut h);
+    let r = h.request("ui.set", json!({"map": {"zoom": 18.0}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    // 20 m at 40° north and zoom 18 (about 0.457 m per point) is about 44 points each way
+    let circle = widget(&h, &format!("mapAccuracy:{}", ids[0].0)).expect("accuracy circle drawn");
+    assert!((circle.width() - 87.5).abs() < 2.0, "{circle:?}");
+    let pin = widget(&h, &format!("mapPin:{}", ids[0].0)).unwrap();
+    assert!(circle.center().distance(pin.center()) < 1.0, "centred on the pin");
+    assert!(widget(&h, &format!("mapAccuracy:{}", ids[1].0)).is_none(), "no error recorded, no circle");
+    assert!(widget(&h, &format!("mapAccuracy:{}", ids[2].0)).is_none(), "smaller than the pin, not drawn");
+    // the hover card says how far off it may be
+    let r = h.request("ui.move", json!({"x": pin.center().x, "y": pin.center().y}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(h.painted_text().iter().any(|t| t.contains("±20 m")), "{:?}", h.painted_text());
+}

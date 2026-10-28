@@ -168,7 +168,8 @@ fn read_gps(g: &Ifd) -> Option<Gps> {
     }
     let altitude = g.f64(t::GPS_ALTITUDE).filter(|a| a.is_finite()).map(|a| if g.u32(t::GPS_ALTITUDE_REF) == Some(1) { -a } else { a });
     let (direction, direction_magnetic) = read_direction(g).map_or((None, false), |(d, m)| (Some(d), m));
-    Some(Gps { latitude: lat, longitude: lon, altitude, direction, direction_magnetic })
+    let accuracy = g.f64(t::GPS_H_POSITIONING_ERROR).and_then(Gps::accuracy_metres);
+    Some(Gps { latitude: lat, longitude: lon, altitude, direction, direction_magnetic, accuracy })
 }
 
 /// Which way the camera pointed (`GPSImgDirection`, degrees from north, 0 to 360) and whether that
@@ -439,6 +440,42 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn reads_the_horizontal_positioning_error() {
+        let read = |err: Option<Vec<(u32, u32)>>| {
+            let mut gps = IfdBuilder::new();
+            gps.set(t::GPS_LATITUDE_REF, Value::Ascii("N".into()));
+            gps.set(t::GPS_LATITUDE, Value::Rational(vec![(40, 1), (0, 1), (0, 1)]));
+            gps.set(t::GPS_LONGITUDE_REF, Value::Ascii("W".into()));
+            gps.set(t::GPS_LONGITUDE, Value::Rational(vec![(75, 1), (0, 1), (0, 1)]));
+            if let Some(e) = err {
+                gps.set(t::GPS_H_POSITIONING_ERROR, Value::Rational(e));
+            }
+            let mut ifd0 = IfdBuilder::new();
+            ifd0.set_child(t::GPS_IFD, gps);
+            read_exif(&TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap()).gps.unwrap().accuracy
+        };
+        assert_eq!(read(Some(vec![(65, 10)])), Some(6.5), "metres");
+        assert_eq!(read(None), None, "not recorded");
+        assert_eq!(read(Some(vec![(5, 0)])), None, "zero denominator");
+        assert_eq!(read(Some(vec![(0, 1)])), None, "zero is no error estimate");
+        assert_eq!(read(Some(vec![(20_000_000, 1)])), None, "absurdly wide");
+    }
+
+    #[test]
+    fn a_negative_positioning_error_is_none() {
+        let mut gps = IfdBuilder::new();
+        gps.set(t::GPS_LATITUDE_REF, Value::Ascii("N".into()));
+        gps.set(t::GPS_LATITUDE, Value::Rational(vec![(40, 1), (0, 1), (0, 1)]));
+        gps.set(t::GPS_LONGITUDE_REF, Value::Ascii("W".into()));
+        gps.set(t::GPS_LONGITUDE, Value::Rational(vec![(75, 1), (0, 1), (0, 1)]));
+        gps.set(t::GPS_H_POSITIONING_ERROR, Value::SRational(vec![(-5, 1)]));
+        let mut ifd0 = IfdBuilder::new();
+        ifd0.set_child(t::GPS_IFD, gps);
+        let g = read_exif(&TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap()).gps.unwrap();
+        assert_eq!(g.accuracy, None);
+    }
+
+    #[test]
     fn placeholder_gps_block_is_no_location() {
         // Android phones without a fix write NUL refs and 0/0 rationals (#1617).
         let read = |lat_ref: &str, lat: Vec<(u32, u32)>| {
@@ -571,6 +608,9 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
             gps.set(t::GPS_IMG_DIRECTION_REF, Value::Ascii(if g.direction_magnetic { "M" } else { "T" }.into()));
             gps.set(t::GPS_IMG_DIRECTION, Value::Rational(vec![rational(d)]));
         }
+        if let Some(e) = g.accuracy.and_then(Gps::accuracy_metres) {
+            gps.set(t::GPS_H_POSITIONING_ERROR, Value::Rational(vec![rational(e)]));
+        }
         ifd0.set_child(t::GPS_IFD, gps);
     }
     TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap_or_default()
@@ -593,12 +633,20 @@ mod write_tests {
             iso: Some(400),
             focal_length: Some(35.0),
             lens_model: Some("35mm F2".into()),
-            gps: Some(Gps { latitude: 43.7904, longitude: -110.6818, altitude: Some(2000.0), direction: Some(212.5), direction_magnetic: true }),
+            gps: Some(Gps {
+                latitude: 43.7904,
+                longitude: -110.6818,
+                altitude: Some(2000.0),
+                direction: Some(212.5),
+                direction_magnetic: true,
+                accuracy: Some(4.5),
+            }),
             ..Default::default()
         };
         let back = read_exif(&write_exif(&m));
         let heading = back.gps.map(|g| (g.direction.map(|d| (d * 100.0).round() / 100.0), g.direction_magnetic));
         assert_eq!(heading, Some((Some(212.5), true)), "the heading is written");
+        assert_eq!(back.gps.and_then(|g| g.accuracy), Some(4.5), "the positioning error is written");
         assert_eq!(back.make, m.make);
         assert_eq!(back.model, m.model);
         assert_eq!(back.copyright, m.copyright);

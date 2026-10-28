@@ -605,7 +605,8 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         let direction = num("exif:GPSImgDirection").filter(|d| (0.0..=360.0).contains(d)).and_then(Gps::bearing);
         let direction_magnetic = direction.is_some()
             && first("exif:GPSImgDirectionRef").and_then(|r| r.trim_start().chars().next()).is_some_and(|c| c.eq_ignore_ascii_case(&'M'));
-        m.gps = Some(Gps { latitude: lat, longitude: lon, altitude, direction, direction_magnetic });
+        let accuracy = num("exif:GPSHPositioningError").and_then(Gps::accuracy_metres);
+        m.gps = Some(Gps { latitude: lat, longitude: lon, altitude, direction, direction_magnetic, accuracy });
     }
     // DJI drones: the gimbal's yaw (−180…180, the camera's heading), used when no GPSImgDirection
     m.camera_yaw = num("drone-dji:GimbalYawDegree").and_then(Gps::bearing);
@@ -684,6 +685,9 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
         if let Some(d) = g.direction.and_then(Gps::bearing) {
             push("exif:GPSImgDirection", Some(frac(d)));
             push("exif:GPSImgDirectionRef", Some(if g.direction_magnetic { "M" } else { "T" }.into()));
+        }
+        if let Some(e) = g.accuracy.and_then(Gps::accuracy_metres) {
+            push("exif:GPSHPositioningError", Some(frac(e)));
         }
     }
 
