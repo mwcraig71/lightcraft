@@ -7,6 +7,37 @@ use serde_json::{Value, json};
 
 use super::binary;
 
+/// `photo.exportLocations` from the command line: GeoJSON in [lon, lat] order, KML with the
+/// title escaped.
+#[test]
+fn photo_locations_export_as_geojson_and_kml() {
+    let input = tmp("locations-input.png");
+    gradient_png(&input);
+    let (geojson, kml) = (tmp("locations.geojson"), tmp("locations.kml"));
+    let (ok, lines, err) = run_cli(
+        &[
+            "--import",
+            input.to_str().unwrap(),
+            "photo.setMeta",
+            "gps=[40.5, -75.25]",
+            "title=Pier <2> & abutment",
+            "photo.exportLocations",
+            &format!("path={}", geojson.display()),
+            "photo.exportLocations",
+            &format!("path={}", kml.display()),
+        ],
+        None,
+    );
+    assert!(ok, "{err}: {lines:?}");
+    assert_eq!(lines[1]["result"]["written"], 1, "{lines:?}");
+    assert_eq!(lines[1]["result"]["skipped"], 0, "{lines:?}");
+    let g: Value = serde_json::from_str(&std::fs::read_to_string(&geojson).unwrap()).unwrap();
+    assert_eq!(g["features"][0]["geometry"]["coordinates"], json!([-75.25, 40.5]));
+    assert_eq!(g["features"][0]["properties"]["name"], "Pier <2> & abutment");
+    let k = std::fs::read_to_string(&kml).unwrap();
+    assert!(k.contains("<name>Pier &lt;2&gt; &amp; abutment</name>") && k.contains("<coordinates>-75.25,40.5</coordinates>"), "{k}");
+}
+
 #[test]
 fn contact_sheet_exports_pdf_and_protects_originals() {
     let input = tmp("contact-sheet-input.png");
