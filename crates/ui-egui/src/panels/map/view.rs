@@ -305,7 +305,7 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
     let img_h = 132.0;
     let single = c.members.len() == 1 && c.site.is_none();
     let heading = single.then(|| facts(first)).flatten();
-    // wide enough for the longest line (the heading and altitude), never narrower than 200
+    // wide enough for the longest line (heading, altitude and accuracy), never narrower than 200
     let widest = heading.as_ref().map_or(0.0, |h| painter.layout_no_wrap(h.clone(), t.font(11.0), t.text_dim).size().x);
     let card_w = (widest + 16.0).clamp(200.0, 320.0);
     let size = vec2(card_w, img_h + if heading.is_some() { 62.0 } else { 46.0 });
@@ -348,15 +348,15 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
     crate::widgets::register_geometry(ui.ctx(), "map:hover", card);
 }
 
-/// "Heading 355° (magnetic) · 67 m": the hover card's line about where the camera pointed from.
+/// "Heading 355° (magnetic) · 67 m altitude · ±6 m": the hover card's line about where the camera
+/// pointed from and how sure the position is.
 fn facts(p: &pins::Pin) -> Option<String> {
     let heading = p.direction.map(|d| {
         let d = d.round() as i32 % 360;
         if p.magnetic { tr_format!("Heading {d}° (magnetic)", d = d) } else { tr_format!("Heading {d}°", d = d) }
     });
     let altitude = p.altitude.map(|a| tr_format!("{m} m altitude", m = a.round() as i64));
-    match (heading, altitude) {
-        (Some(h), Some(a)) => Some(format!("{h} · {a}")),
-        (h, a) => h.or(a),
-    }
+    let accuracy = p.accuracy.map(|e| tr_format!("±{m} m", m = e.round().max(1.0) as i64));
+    let parts: Vec<String> = [heading, altitude, accuracy].into_iter().flatten().collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
 }

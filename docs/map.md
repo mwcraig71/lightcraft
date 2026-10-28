@@ -23,9 +23,15 @@ a few hundred photos along one structure.
 - **Heading:** a photo that recorded which way the camera pointed gets a 60° view cone: phones and
   tablets write `GPSImgDirection` (EXIF or XMP; true or magnetic north), DJI drones the gimbal's
   yaw (`drone-dji:GimbalYawDegree`, read only, used when there is no `GPSImgDirection`). The hover
-  card gives the heading, "magnetic" when it is from magnetic north, and the altitude. Headings and
-  altitude are kept in the catalog, written to XMP sidecars and exported files; **Photo ▸ Reload
-  from Disk** reads them for photos imported before LightCraft kept them.
+  card gives the heading, "magnetic" when it is from magnetic north, the altitude and the accuracy
+  ("±6 m"). Headings, altitude and accuracy are kept in the catalog, written to XMP sidecars and
+  exported files; **Photo ▸ Reload from Disk** reads them for photos imported before LightCraft
+  kept them.
+- **Accuracy:** a photo whose file says how far off its position may be (`GPSHPositioningError`,
+  EXIF or XMP, in metres; phones write it) gets a translucent blue circle of that radius under its
+  pin, once the circle is wider than the pin. Near a bridge a phone's fix is often 5–10 m off,
+  which matters at short spans. A position typed in Edit Info or set from a tracklog has no
+  accuracy; values that are not a positive number of metres up to 10 km are ignored.
 - The status line counts the photos and those with a location. **"N without location"** selects
   the photos that have none.
 

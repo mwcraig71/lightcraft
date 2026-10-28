@@ -22,6 +22,8 @@ pub struct Pin {
     pub magnetic: bool,
     /// Metres above sea level.
     pub altitude: Option<f64>,
+    /// How far off the position may be, in metres (`GPSHPositioningError`).
+    pub accuracy: Option<f64>,
     /// The folder holding the file (none for a demo photo); a site is named after its photos' folder.
     pub folder: Option<String>,
 }
@@ -59,6 +61,7 @@ pub fn collect(app: &mut LightcraftApp) -> Pins {
                 direction: p.meta.gps_direction.filter(|d| d.is_finite()),
                 magnetic: p.meta.gps_direction_magnetic,
                 altitude: p.meta.gps_altitude.filter(|a| a.is_finite()),
+                accuracy: p.meta.gps_accuracy.and_then(lightcraft_meta::Gps::accuracy_metres),
                 folder: match &p.source {
                     lightcraft_catalog::Source::File { path } => parent(path),
                     lightcraft_catalog::Source::Demo { .. } => None,
@@ -251,6 +254,7 @@ mod tests {
             direction: None,
             magnetic: false,
             altitude: None,
+            accuracy: None,
             folder: None,
         }
     }

@@ -255,6 +255,32 @@ fn draw_cone(painter: &egui::Painter, at: Pos2, degrees: f32, color: Color32) {
     painter.add(egui::Shape::convex_polygon(pts, color.gamma_multiply(0.35), Stroke::new(1.2, color.gamma_multiply(0.9))));
 }
 
+/// The accuracy circle: drawn once wider than a pin, never wider than this (points) across.
+const ACCURACY_MIN_R: f32 = 8.0;
+const ACCURACY_MAX_R: f32 = 400.0;
+const ACCURACY: Color32 = Color32::from_rgb(66, 153, 225);
+
+/// The radius in points of a positioning error of `metres` at latitude `lat` and `zoom` (Web
+/// Mercator), capped to [`ACCURACY_MAX_R`]; `None` when it would hide under the pin or the
+/// numbers are no use.
+pub fn accuracy_radius(metres: f64, lat: f64, zoom: f64) -> Option<f32> {
+    let m_per_pt = mercator::metres_per_pixel(lat, zoom);
+    if !(metres.is_finite() && metres > 0.0 && m_per_pt.is_finite() && m_per_pt > 0.0) {
+        return None;
+    }
+    let r = (metres / m_per_pt).min(f64::from(ACCURACY_MAX_R)) as f32;
+    (r >= ACCURACY_MIN_R).then_some(r)
+}
+
+/// The circle a position may be anywhere within: translucent fill, thin outline, `radius_pt`
+/// points about `at`. Shared with the Info panel's mini-map.
+pub fn draw_accuracy(painter: &egui::Painter, at: Pos2, radius_pt: f32, color: Color32) {
+    if !(radius_pt.is_finite() && radius_pt > 0.0) {
+        return;
+    }
+    painter.circle(at, radius_pt, color.gamma_multiply(0.18), Stroke::new(1.0, color.gamma_multiply(0.8)));
+}
+
 /// Pin colours: ordinary, selected.
 const PIN: Color32 = Color32::from_rgb(226, 74, 51);
 const RING: Color32 = Color32::WHITE;
@@ -267,6 +293,21 @@ pub fn draw_pins(ui: &egui::Ui, vp: &Viewport, pins: &[Pin], clusters: &[Cluster
         let pts: Vec<Pos2> = pins.iter().map(|p| vp.screen_of(p.world)).collect();
         painter.add(egui::Shape::line(pts.clone(), Stroke::new(3.5, Color32::from_black_alpha(90))));
         painter.add(egui::Shape::line(pts, Stroke::new(1.8, Color32::from_rgb(255, 196, 64))));
+    }
+    // accuracy circles under everything else: how far off each single photo's position may be
+    for c in clusters.iter().filter(|c| c.site.is_none()) {
+        if let [only] = c.members.as_slice()
+            && let Some(p) = pins.get(*only)
+            && let Some(radius) = p.accuracy.and_then(|e| accuracy_radius(e, mercator::from_world(p.world.0, p.world.1).0, vp.zoom))
+        {
+            let at = vp.screen_of(p.world);
+            draw_accuracy(&painter, at, radius, if selected(p.id.0) { t.accent } else { ACCURACY });
+            crate::widgets::register_geometry(
+                ui.ctx(),
+                format!("mapAccuracy:{}", p.id.0),
+                Rect::from_center_size(at, vec2(2.0 * radius, 2.0 * radius)),
+            );
+        }
     }
     // view cones under the pins: which way each single photo's camera pointed
     for c in clusters.iter().filter(|c| c.site.is_none()) {
@@ -401,6 +442,20 @@ mod tests {
         v.pan(vec2(-10_000.0, 1e7));
         assert!((0.0..1.0).contains(&v.center.0));
         assert_eq!(v.center.1, 0.0);
+    }
+
+    #[test]
+    fn accuracy_radius_is_metres_on_screen_within_bounds() {
+        // at the equator, zoom 18: about 0.597 m per point, so 6 m is about 10 points
+        let r = accuracy_radius(6.0, 0.0, 18.0).unwrap();
+        assert!((r - 10.05).abs() < 0.1, "{r}");
+        // twice as many points per metre at 60° north
+        let north = accuracy_radius(6.0, 60.0, 18.0).unwrap();
+        assert!((north - 2.0 * r).abs() < 0.1, "{north}");
+        assert_eq!(accuracy_radius(6.0, 0.0, 12.0), None, "smaller than a pin");
+        assert_eq!(accuracy_radius(5000.0, 0.0, 20.0), Some(ACCURACY_MAX_R), "capped");
+        assert_eq!(accuracy_radius(f64::NAN, 0.0, 18.0), None);
+        assert_eq!(accuracy_radius(-6.0, 0.0, 18.0), None);
     }
 
     #[test]
