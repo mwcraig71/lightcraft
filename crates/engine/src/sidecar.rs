@@ -346,13 +346,22 @@ impl SidecarData {
 
 /// The sidecar packet for a photo; the colour label is written by its name in `cat` (custom
 /// label names included, as other editors do).
+/// It carries the photo's inspection log as plain text in `lc:inspectionLog` (newest entry first,
+/// one a line; see [`lightcraft_catalog::notes::summary`]): LightCraft's own namespace, so the
+/// caption and description other apps show stay the user's. Written, never read back (the catalog
+/// keeps the log itself).
 pub fn sidecar_packet(p: &Photo, cat: &lightcraft_catalog::Catalog) -> String {
-    sidecar_packet_with(p, cat, false)
+    packet(p, cat, false, true)
 }
 
 /// [`sidecar_packet`], without any location (GPS, sublocation, city, state, country) when
 /// `remove_location` is set (an export with "Remove location info").
+/// Exported files don't carry the inspection log.
 pub fn sidecar_packet_with(p: &Photo, cat: &lightcraft_catalog::Catalog, remove_location: bool) -> String {
+    packet(p, cat, remove_location, false)
+}
+
+fn packet(p: &Photo, cat: &lightcraft_catalog::Catalog, remove_location: bool, log: bool) -> String {
     let nz = |s: &str| (!s.trim().is_empty()).then(|| s.to_string());
     let meta = lightcraft_meta::Metadata {
         software: Some("LightCraft".into()),
@@ -389,6 +398,10 @@ pub fn sidecar_packet_with(p: &Photo, cat: &lightcraft_catalog::Catalog, remove_
     let mut lc = vec![("settings", settings.as_str()), ("flag", flag)];
     if !remove_location && !p.meta.location.trim().is_empty() {
         lc.push(("location", p.meta.location.as_str()));
+    }
+    let summary = if log { lightcraft_catalog::notes::summary(cat.notes(p.id)) } else { String::new() };
+    if !summary.is_empty() {
+        lc.push(("inspectionLog", summary.as_str()));
     }
     lightcraft_meta::write_xmp_lc(&meta, &lc)
 }
@@ -599,7 +612,12 @@ fn read_jpeg_xmp(reader: &mut (impl Read + Seek), header_span: u64, marker_steps
 /// Photo ids touched by an op (for auto-write).
 pub(crate) fn op_photos(op: &Op, out: &mut Vec<PhotoId>) {
     match op {
-        Op::SetRating { id, .. } | Op::SetFlag { id, .. } | Op::SetLabel { id, .. } | Op::SetDevelop { id, .. } | Op::SetMeta { id, .. }
+        Op::SetRating { id, .. }
+        | Op::SetFlag { id, .. }
+        | Op::SetLabel { id, .. }
+        | Op::SetDevelop { id, .. }
+        | Op::SetMeta { id, .. }
+        | Op::SetNotes { id, .. }
             if !out.contains(id) =>
         {
             out.push(*id);

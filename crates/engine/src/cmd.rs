@@ -33,6 +33,7 @@ mod masks;
 mod merge;
 pub mod metadata;
 pub mod missing;
+pub mod notes;
 mod organize;
 pub mod orthomosaic;
 mod prefs;
@@ -176,6 +177,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(geocode::specs());
         v.extend(locations::specs());
         v.extend(markers::specs());
+        v.extend(notes::specs());
         v.extend(orthomosaic::specs());
         v.extend(filters::specs());
         v.extend(denoise::specs());
