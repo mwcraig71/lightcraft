@@ -16,11 +16,15 @@
 //! - `mini`: the Info panel's mini-map of the active photo's place.
 //! - `markers`: the user's markers with attached files, and their card.
 //! - `ortho`: drone orthomosaics drawn on the map, the Layers panel.
+//! - `photo`: a photo shown large in the map's place (`map.showPhoto`) beside its inspection log.
+//! - `notes`: the inspection log's list and editor, the pins' log badges.
 
 mod custom;
 mod markers;
 mod mini;
+mod notes;
 mod ortho;
+mod photo;
 mod pins;
 mod settings;
 mod view;
@@ -39,6 +43,8 @@ use crate::state::ViewMode;
 pub use custom::{CustomTiles, HIDDEN_KEY, hide_key, keep_hidden_key};
 pub use markers::{MarkerUi, drop_hint, poll as poll_markers, take_drop};
 pub use mini::{MINI_MAP_H, mini_map};
+pub use notes::{NotesUi, info_section as notes_section};
+pub use photo::{close_photo, film_double_click, photo_mode, step_photo};
 pub use pins::{Pin, cluster};
 pub use settings::settings_tab;
 pub use view::{show, tiles_loading};
@@ -76,6 +82,13 @@ pub struct MapState {
     /// The markers' card and context menu (not saved).
     #[serde(skip)]
     pub markers: MarkerUi,
+    /// The photo shown large in the map's place with its inspection log (`map.showPhoto`; `None`:
+    /// the map). Saved like `focus`, so restoring the UI state (`ui.set`) keeps it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub photo: Option<u64>,
+    /// The inspection log's editor (not saved).
+    #[serde(skip)]
+    pub notes: NotesUi,
 }
 
 impl Default for MapState {
@@ -89,6 +102,8 @@ impl Default for MapState {
             followed: None,
             focus: Vec::new(),
             markers: MarkerUi::default(),
+            photo: None,
+            notes: NotesUi::default(),
         }
     }
 }
@@ -164,6 +179,9 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         return Some(r);
     }
     if let Some(r) = ortho::run(app, id, p) {
+        return Some(r);
+    }
+    if let Some(r) = photo::run(app, id, p) {
         return Some(r);
     }
     Some(match id {

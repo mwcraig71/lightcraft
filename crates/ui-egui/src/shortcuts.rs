@@ -504,6 +504,11 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             let _ = app.run(if f == "library.next" { "slideshow.next" } else { "slideshow.previous" }, json!({}));
             continue;
         }
+        // the Map view's photo mode: ←/→ step through its filmstrip, staying in photo mode
+        if matches!(f.as_str(), "library.next" | "library.previous") && crate::panels::map::step_photo(app, if f == "library.next" { 1 } else { -1 })
+        {
+            continue;
+        }
         if let Some(rest) = f.strip_prefix("rate:") {
             let (n, adv) = rest.split_once(':').unwrap_or(("0", "0"));
             cull(app, "photo.rate", json!({"rating": n.parse::<u8>().unwrap_or(0)}), adv == "1");

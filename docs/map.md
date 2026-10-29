@@ -9,8 +9,8 @@ a few hundred photos along one structure.
   whenever the folder or filter changes; **Fit All** does it again.
 - **Pan** by dragging. **Zoom** with the wheel or a pinch (about the pointer), or **+ / −**.
 - **Click a pin** to select its photo (Shift: a range, Cmd/Ctrl: add or remove, as in the grid).
-  **Double-click** opens it in Detail. Selecting a photo in the filmstrip brings its pin on screen,
-  highlighted.
+  **Double-click** shows it large in the map's place, beside its inspection log (below). Selecting
+  a photo in the filmstrip brings its pin on screen, highlighted.
 - **Zoomed far out**, each site (photos taken close together, such as along one bridge) is one
   dot labelled with its name and photo count. The name is the album's when an album is shown,
   otherwise the folder all the site's photos share (`Bridge 1234/Span 1` and `Bridge 1234/Span 2`
@@ -88,6 +88,44 @@ From the CLI, control channel or MCP:
 lightcraft-cli run --library ~/Pictures/LightCraft map.attach lat=37.8199 lon=-122.4783 \
   'paths=["inspection.pdf", "deck.xlsx", "pier-3.jpg"]'
 ```
+
+## Photo view and inspection log
+
+For an inspection, each photo of a defect needs what was seen, what was done about it and when.
+The Map view keeps that with the photo, next to where it was taken.
+
+- **Show a photo:** double-click it in the Map view's filmstrip, or double-click its pin. The
+  photo fills the map's area, with its **inspection log** on the right (below it when the window
+  is narrower than 900 points). Elsewhere a filmstrip double-click is unchanged. The photo is
+  rendered in the background like the loupe's (the thumbnail stands in until it is ready).
+- **Back to the map**, exactly as it was (its place and zoom, the filmstrip narrowed to a spot, an
+  open marker card): **Esc**, **Back to Map** (top-left over the photo), a double-click on the
+  photo, or the same double-click on its filmstrip thumbnail again. The photos stepped to
+  meanwhile don't move the map to their pins.
+- **Other photos:** **← / →** and clicks in the filmstrip show the previous / next photo of the
+  filmstrip (of the spot's photos when it is narrowed), staying in the photo view.
+- **The log:** dated entries, newest first. Each has a **kind** (Inspection, Repair,
+  Preservation), the **element** (Deck, Wearing surface, Joint, Railing/Barrier, Girder/Beam,
+  Floor beam, Stringer, Truss, Cable/Suspender, Bearing, Pier, Pier cap, Abutment, Wingwall,
+  Footing/Foundation, Culvert, Drainage, Approach, or Other with what it is: "Other: Lighting
+  pole"), an optional **condition** (Good, Fair, Poor, Critical), the **text** (plain, up to 5000
+  characters) and the **date** it is about (today unless changed; `YYYY-MM-DD`). **+ Add Entry**
+  opens the fields; each entry has **Edit** and **Delete** (which asks first). Adding, editing and
+  deleting are each one undo step.
+- **On the map**, a pin whose photo has a log gets a small dot at its top right, coloured by the
+  photo's current condition: **red** Critical, **orange** Poor, **yellow** Fair, **green** Good,
+  white when no entry is rated. The current condition is, for each element, the rating of its
+  newest rated entry (a Repair rated Good after an Inspection rated Poor counts as Good), and the
+  worst of those. A cluster gets the worst of its photos'. The hover card adds the newest entry.
+- **Info panel:** the active photo's log, the latest three entries (**All N entries** for the
+  rest), with **+ Add Entry**.
+- **Where it is kept:** in the library's catalog (format 11), with the photo. With **XMP sidecars
+  written automatically** (Settings ▸ Import), the photo's sidecar also gets a plain-text summary,
+  one entry a line (`2026-10-28 · Inspection · Bearing · Poor: Bearing 3 squeals`), in
+  `lc:inspectionLog`, LightCraft's own namespace: the caption and description other apps show stay
+  yours. It is written, never read back (the catalog holds the log), and isn't put in exported
+  photos. The original file is never changed.
+- **Export:** File ▸ Export Photo Locations… carries each photo's log (below).
 
 ## Drone orthomosaics (GeoTIFF overlays)
 
@@ -258,6 +296,8 @@ Each photo is one point, in capture order, with:
 | Heading (degrees from north) and `headingRef` (`true` or `magnetic`), when recorded | `ExtendedData` | properties |
 | `accuracy`: how far off the position may be (metres, from `GPSHPositioningError`), when recorded | `ExtendedData` | properties |
 | Photo id, file name and the original's path | `ExtendedData` (`id`, `fileName`, `path`) | `id`, `fileName`, `path` |
+| The inspection log, newest first, when the photo has one | `<description>` and `ExtendedData` `notes`: one entry a line | `notes`: `[{id, kind, element, condition, text, date, created, modified}]` |
+| `condition`: the photo's current condition (see above), when an entry is rated | `ExtendedData` | properties |
 
 Every photo point has `kind: photo`. The map's **markers** are added as points with `kind:
 marker` (in KML, a `Markers` folder): `name` (the title, else "Marker N"), `id`, `note` (also the
@@ -293,6 +333,12 @@ Without `path` the text comes back in the result (`text`) instead.
 | `map.removeMarker` | `{id}` | Delete a marker's record (the copied files stay); returns `{removed, attachments, photos}` |
 | `map.attach` | `{marker \| lat, lon, paths: [file]}` | Copy files into the library and attach them (images: imported as photos at the point; a new marker at `lat`, `lon` without `marker`); returns `{marker, attached, photos, errors, card}` |
 | `map.detach` | `{marker, attachment}` \| `{marker, photo}` | Take an attachment or a photo off a marker (the copy and the photo stay) |
+| `map.showPhoto` | `{id \| null}` | Show the photo in the map's place beside its inspection log (and select it); `null`: the map again, as it was |
+| `photo.notes` | `{id?}` | A photo's inspection log (default: the active photo): `{id, notes: [{id, kind, element, condition, text, date, created, modified}], worst, summary}`, newest first |
+| `photo.addNote` | `{id?, kind?, element, condition?, text?, date?}` | Add an entry (`kind`: `inspection` (default), `repair`, `preservation`; `condition`: `good`, `fair`, `poor`, `critical`; `date`: `YYYY-MM-DD`, default today); returns `{id, note, log}` |
+| `photo.updateNote` | `{id?, note, kind?, element?, condition?, text?, date?}` | Change an entry's fields given (`condition: null` clears it); returns `{id, changed, note}` |
+| `photo.removeNote` | `{id?, note}` | Delete an entry; returns `{id, removed, left}` |
+| `photo.noteChoices` | | The elements, kinds and conditions an entry may have |
 | `map.markers` | `{id?}` | Every marker with its attachments (`path` in the library, `file`, `exists`) and photos |
 | `map.attachmentPath` | `{marker, attachment}` | Where the library's copy is, and whether it is a type that opens: `{path, exists, openable, reason?}` |
 | `map.openMarker` | `{id}` | Open a marker's card on the Map view (`null`: close it) |
@@ -330,7 +376,11 @@ All go through the control channel and MCP like any UI command, e.g. a headless 
   are built in one place, `Point::properties`).
 - `crates/catalog/src/markers.rs`: the marker record (`Op::SetMarker`, catalog format 10);
   `crates/engine/src/cmd/markers.rs`: the `map.*` marker commands, the copies and the open gate.
+- `crates/catalog/src/notes.rs`: the inspection log record (`Op::SetNotes`, catalog format 11),
+  its checks, the current condition and the summary; `crates/engine/src/cmd/notes.rs`: the
+  `photo.*Note*` commands.
 - `crates/ui-egui/src/panels/map/`: the view, the map widget, the pins and the markers
-  (`markers.rs`: drawing, the card, the context menu, drops). The UI gets tiles
+  (`markers.rs`: drawing, the card, the context menu, drops); `photo.rs`: the photo shown in the
+  map's place; `notes.rs`: the log's list and editor, the pins' badges. The UI gets tiles
   through `Services::map_tiles` (the desktop app passes a `TilePool`; the web build and tests pass
   none or a fake, so tests never touch the network).
