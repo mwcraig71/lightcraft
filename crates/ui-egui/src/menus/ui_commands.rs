@@ -82,6 +82,11 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("map.attachFiles", "Attach Files to Marker…", None, ""),
     ("map.openAttachment", "Open Attachment", None, ""),
     ("map.revealAttachment", "Show Attachment in Folder", None, ""),
+    // {photos: [ids]} | {marker} | {attachment: {marker, attachment}}: the Map view's placing mode (right-click ▸ Move…)
+    ("map.beginMove", "Move on the Map…", None, ""),
+    ("map.cancelMove", "Cancel Move", None, ""),
+    // {lat, lon, marker?}: put what is being moved there (an attachment onto `marker`, else a new marker)
+    ("map.place", "Place Here", None, ""),
     // {path?, name?}: orthomosaic.add with a file dialog (GeoTIFF; the map's Layers panel), then the Map view fitted to it
     ("map.addOrthomosaic", "Add Orthomosaic…", None, ""),
     // {id, zoom?}

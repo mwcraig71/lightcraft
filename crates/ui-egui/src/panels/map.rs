@@ -16,10 +16,12 @@
 //! - `mini`: the Info panel's mini-map of the active photo's place.
 //! - `markers`: the user's markers with attached files, and their card.
 //! - `ortho`: drone orthomosaics drawn on the map, the Layers panel.
+//! - `moving`: moving photos, markers and attached files to another place (right-click ▸ Move…).
 
 mod custom;
 mod markers;
 mod mini;
+mod moving;
 mod ortho;
 mod pins;
 mod settings;
@@ -39,6 +41,7 @@ use crate::state::ViewMode;
 pub use custom::{CustomTiles, HIDDEN_KEY, hide_key, keep_hidden_key};
 pub use markers::{MarkerUi, drop_hint, poll as poll_markers, take_drop};
 pub use mini::{MINI_MAP_H, mini_map};
+pub use moving::{MoveUi, cancel as cancel_move};
 pub use pins::{Pin, cluster};
 pub use settings::settings_tab;
 pub use view::{show, tiles_loading};
@@ -76,6 +79,9 @@ pub struct MapState {
     /// The markers' card and context menu (not saved).
     #[serde(skip)]
     pub markers: MarkerUi,
+    /// Moving photos, a marker or a file: the placing mode and the notice after (not saved).
+    #[serde(skip)]
+    pub moving: MoveUi,
 }
 
 impl Default for MapState {
@@ -89,6 +95,7 @@ impl Default for MapState {
             followed: None,
             focus: Vec::new(),
             markers: MarkerUi::default(),
+            moving: MoveUi::default(),
         }
     }
 }
@@ -164,6 +171,9 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         return Some(r);
     }
     if let Some(r) = ortho::run(app, id, p) {
+        return Some(r);
+    }
+    if let Some(r) = moving::run(app, id, p) {
         return Some(r);
     }
     Some(match id {

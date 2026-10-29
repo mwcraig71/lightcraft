@@ -79,7 +79,8 @@ photos. It makes the Map view a light record of the site, kept with the library.
   the copy stays in `Attachments/<marker id>/`, so undo and redo always find it, and an attached
   photo stays in the library. LightCraft never deletes an attached file; to reclaim the space,
   delete the folder of a marker you no longer need yourself.
-- Moving a marker (`map.updateMarker` with `lat`, `lon`) doesn't move its photos.
+- Moving a marker (right-click ▸ **Move Marker…**, or `map.updateMarker` with `lat`, `lon`) takes
+  its files along but not its photos (below).
 - **Export:** File ▸ Export Photo Locations… includes the markers (below).
 
 From the CLI, control channel or MCP:
@@ -87,6 +88,49 @@ From the CLI, control channel or MCP:
 ```sh
 lightcraft-cli run --library ~/Pictures/LightCraft map.attach lat=37.8199 lon=-122.4783 \
   'paths=["inspection.pdf", "deck.xlsx", "pier-3.jpg"]'
+```
+
+## Moving photos, markers and files
+
+A phone's fix near a bridge is often 5–10 m off, a drone's photo of a bearing is placed where the
+drone hovered, and a document attached at the wrong pier belongs at the next one. Anything on the
+map can be put somewhere else:
+
+- **Right-click a pin ▸ Move Photo…**; a cluster or a site's dot ▸ **Move N Photos…** (all the
+  photos in it); a pin of one of several selected photos ▸ **Move N Selected Photos…**; a marker
+  ▸ **Move Marker…**. In a marker's card, each attachment has **Move To…**.
+- **Placing:** the map then shows a banner across the top ("Click the new location for 3 photos —
+  Esc to cancel"), the pointer is a crosshair and a ghost of what moves follows it (a group as its
+  own shape, with a line from where it is now). **Drag pans and the wheel zooms as usual; a click
+  without a drag places.** Esc, a right-click or the banner's **Cancel** go back to the ordinary
+  map at once, with nothing changed.
+- **A group keeps its arrangement:** every photo moves by the same distance and direction, the one
+  that takes the group's centre (the mean of its positions, in Web Mercator) to the point clicked.
+  **Stack at one point** in the banner puts every photo on the point instead.
+- **After a move** the map stays where it was (it doesn't fit the pins again) and the banner says
+  what moved ("Moved 3 photos") with **Undo** for a few seconds. Each move is one undo step
+  ("Move 3 Photos"), also with Edit ▸ Undo.
+- **What a photo's move changes:** its location in the catalog and, with XMP sidecars on, in the
+  sidecar; the original file's EXIF never. The recorded positioning error goes (the new spot is
+  yours); altitude and heading stay. Photos without a location in a moved group are left as they
+  are (a group's shape needs a position); `photo.setLocation` with `mode: "stack"` gives them one.
+- **A marker** moves with its files (they are kept by the marker, not at a place). **Its photos
+  stay where they are**: they have their own locations, often a few metres apart; move them too
+  with their own Move… (the marker card's **Photos here** selects them in the filmstrip).
+- **An attachment's Move To…:** a click on a marker puts the file on that marker; a click anywhere
+  else makes a new marker there for it. The library's copy moves from `Attachments/<old id>/` into
+  `Attachments/<new id>/` (a name already there gets `-1`, `-2`…; nothing is overwritten). If the
+  file can't be moved (missing, locked), nothing changes. Undo moves the file back to its old
+  folder and the record with it (a new marker made for it goes); redo moves it again. If the file
+  was deleted by hand in between, undo still restores the record (the card then shows it as
+  missing) rather than refusing.
+- The photos listed on a marker are moved as photos (right-click their pins), not from the card.
+
+From the CLI, control channel or MCP:
+
+```sh
+lightcraft-cli run --library ~/Pictures/LightCraft photo.setLocation 'ids=[12, 13, 14]' lat=37.8199 lon=-122.4783
+lightcraft-cli run --library ~/Pictures/LightCraft map.moveAttachment marker=3 attachment=2 'to={"lat": 37.82, "lon": -122.478}'
 ```
 
 ## Drone orthomosaics (GeoTIFF overlays)
@@ -299,6 +343,11 @@ Without `path` the text comes back in the result (`text`) instead.
 | `map.attachFiles` | `{marker \| lat, lon, paths?}` | `map.attach` from the UI: a file dialog without `paths`; big documents copied in the background |
 | `map.openAttachment` | `{marker, attachment}` | Open the library's copy with the system's default app (documents and pictures only) |
 | `map.revealAttachment` | `{marker, attachment}` | Show the library's copy in its folder |
+| `photo.setLocation` | `{ids, lat, lon, mode?: translate\|stack}` | Move photos: `translate` (default) moves the group's centre to `lat`, `lon` keeping the photos' arrangement (those without a location are `skipped`); `stack` puts every photo there (also gives one to photos without). Clears the positioning error, keeps altitude and heading; catalog and XMP sidecar; one undo step. Returns `{moved, skipped, unchanged, mode, photos: [{id, lat, lon}]}` |
+| `map.moveAttachment` | `{marker, attachment, to: markerId \| {lat, lon}}` | Move one attachment to another marker, or to a new marker at the point; the library's copy moves into that marker's folder (undo moves it back). Returns `{marker, attachment, path, created, from, card}` |
+| `map.beginMove` | `{photos: [ids]} \| {marker} \| {attachment: {marker, attachment}}` | The Map view's placing mode (right-click ▸ Move…); returns `{placing, count, located}` |
+| `map.place` | `{lat, lon, marker?}` | Put what is being placed there (an attachment onto `marker` when given, else a new marker); the result of the move |
+| `map.cancelMove` | | Leave the placing mode, nothing moved; returns `{cancelled}` |
 | `orthomosaic.add` | `{path, name?}` | Add a GeoTIFF orthomosaic; returns `{id, name, crs, epsg, resolutionCm, bounds: {north, south, east, west}, corners, minZoom, maxZoom, status, …}` and builds its tiles (activity `orthomosaic`) |
 | `orthomosaic.list` | | Every orthomosaic with `visible`, `opacity`, `status` (`{state: building, done, total}`, `ready` or `failed` with `error`), `progress`, `missing` |
 | `orthomosaic.set` | `{id, visible?, opacity?: 0..1, name?}` | Show / hide, opacity, rename |
@@ -330,6 +379,10 @@ All go through the control channel and MCP like any UI command, e.g. a headless 
   are built in one place, `Point::properties`).
 - `crates/catalog/src/markers.rs`: the marker record (`Op::SetMarker`, catalog format 10);
   `crates/engine/src/cmd/markers.rs`: the `map.*` marker commands, the copies and the open gate.
+- `crates/engine/src/cmd/relocate.rs`: `photo.setLocation`. An attachment's move is undone by the
+  undo step's file move (`FolderMove { file: true }`, the mechanism Rename / Move Folder use);
+  `crates/ui-egui/src/panels/map/moving.rs`: the placing mode (banner, ghost, Esc) and
+  `map.beginMove` / `map.place` / `map.cancelMove`.
 - `crates/ui-egui/src/panels/map/`: the view, the map widget, the pins and the markers
   (`markers.rs`: drawing, the card, the context menu, drops). The UI gets tiles
   through `Services::map_tiles` (the desktop app passes a `TilePool`; the web build and tests pass

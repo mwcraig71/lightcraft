@@ -14,6 +14,10 @@
 //! - **Removing keeps the files.** Detaching an attachment or deleting a marker changes only the
 //!   catalog record (one undo step); the copy stays in `Attachments/<marker id>/`, so undo and
 //!   redo always find it. LightCraft never deletes an attached file.
+//! - **Moving an attachment** to another marker (`map.moveAttachment`) moves the library's copy
+//!   into that marker's folder (same `-1`, `-2`… names, never overwriting; on failure nothing
+//!   changes). Its undo step carries the file move back (`FolderMove { file: true }`), so undo and
+//!   redo always find the file where the record says.
 //! - **Opening** goes through [`openable`]: only a document or picture type (PDF, spreadsheets,
 //!   text, Markdown, Office files, images…) inside the marker's folder is handed to the system's
 //!   default app; anything else (a program, a script, a link pointing out of the library) can
