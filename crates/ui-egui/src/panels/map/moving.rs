@@ -358,7 +358,8 @@ pub fn banner(app: &mut LightcraftApp, ui: &mut egui::Ui, map: Rect) {
     let Some((text, group, done)) = banner_text(app) else { return };
     let t = Tokens::get(ui.ctx());
     let ctx = ui.ctx().clone();
-    let width = (map.width() - 24.0).clamp(120.0, 640.0);
+    // the notice after a move is short: a narrower strip
+    let width = (map.width() - 24.0).clamp(120.0, if done { 420.0 } else { 640.0 });
     let pos = pos2(map.center().x - width / 2.0, map.top() + 46.0);
     let area = egui::Area::new(egui::Id::unique("lc-map-move-banner")).order(egui::Order::Foreground).fixed_pos(pos).show(&ctx, |ui| {
         egui::Frame::new()
