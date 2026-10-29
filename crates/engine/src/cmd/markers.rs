@@ -115,28 +115,9 @@ pub fn copy_into(src: &Path, dir: &Path, rel_dir: &str, progress: &dyn Fn(u64), 
         return Err("it isn't a file".into());
     }
     let mut from = std::fs::File::open(src).map_err(|e| format!("can't read it: {e}"))?;
-    std::fs::create_dir_all(dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
     let original = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let name = clean_name(&original);
-    let (stem, ext) = split_ext(&name);
-    let mut chosen = None;
-    for n in 0..10_000u32 {
-        let candidate = match (n, ext.is_empty()) {
-            (0, _) => name.clone(),
-            (_, true) => format!("{stem}-{n}"),
-            (_, false) => format!("{stem}-{n}.{ext}"),
-        };
-        let dest = dir.join(&candidate);
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&dest) {
-            Ok(f) => {
-                chosen = Some((candidate, dest, f));
-                break;
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(format!("can't write into {}: {e}", dir.display())),
-        }
-    }
-    let Some((candidate, dest, mut to)) = chosen else { return Err(format!("no free name for {name} in {}", dir.display())) };
+    let (candidate, dest, mut to) = reserve(dir, &name)?;
     let fail = |dest: &Path, why: String| {
         let _ = std::fs::remove_file(dest);
         Err(why)
@@ -170,6 +151,67 @@ pub fn copy_into(src: &Path, dir: &Path, rel_dir: &str, progress: &dyn Fn(u64), 
         return fail(&dest, write_error(&e));
     }
     Ok(Copied { file_name: name, rel: format!("{rel_dir}/{candidate}"), size: done })
+}
+
+/// Create an empty file in `dir` (made if needed) named `name`, or the first of `name-1.ext`,
+/// `name-2.ext`… that is free (`create_new`: never an existing file). Returns the name chosen,
+/// its path and the open file.
+fn reserve(dir: &Path, name: &str) -> std::result::Result<(String, PathBuf, std::fs::File), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("can't make {}: {e}", dir.display()))?;
+    let (stem, ext) = split_ext(name);
+    for n in 0..10_000u32 {
+        let candidate = match (n, ext.is_empty()) {
+            (0, _) => name.to_string(),
+            (_, true) => format!("{stem}-{n}"),
+            (_, false) => format!("{stem}-{n}.{ext}"),
+        };
+        let dest = dir.join(&candidate);
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&dest) {
+            Ok(f) => return Ok((candidate, dest, f)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(format!("can't write into {}: {e}", dir.display())),
+        }
+    }
+    Err(format!("no free name for {name} in {}", dir.display()))
+}
+
+/// Move the file `src` into `dir` under `name`, or the first free `name-1.ext`, `name-2.ext`…
+/// (never over an existing file: the name is reserved with `create_new`, then the file renamed
+/// onto that empty placeholder). On failure nothing has changed. Returns the name it got and the
+/// new path.
+pub fn move_into(src: &Path, dir: &Path, name: &str) -> std::result::Result<(String, PathBuf), String> {
+    match std::fs::symlink_metadata(src) {
+        Ok(m) if m.is_file() => {}
+        Ok(_) => return Err("it isn't a plain file".into()),
+        Err(e) => return Err(format!("the file is missing from the library ({e})")),
+    }
+    let (candidate, dest, placeholder) = reserve(dir, name)?;
+    drop(placeholder);
+    if let Err(e) = std::fs::rename(src, &dest) {
+        let _ = std::fs::remove_file(&dest);
+        return Err(format!("can't move it into {}: {e}", dir.display()));
+    }
+    Ok((candidate, dest))
+}
+
+/// An undo or redo step's file move (`map.moveAttachment`): rename `from` to `to`, never over an
+/// existing file. A `from` already gone is no error (there is nothing to move, and the step must
+/// not jam the undo history); the record then shows the file as missing.
+pub(crate) fn move_file_back(from: &str, to: &str) -> std::result::Result<(), String> {
+    let (src, dst) = (Path::new(from), Path::new(to));
+    match std::fs::symlink_metadata(src) {
+        Ok(m) if m.is_file() => {}
+        Ok(_) => return Err(format!("{from} isn't a plain file")),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(format!("{from}: {e}")),
+    }
+    if std::fs::symlink_metadata(dst).is_ok() {
+        return Err(format!("{to} already exists"));
+    }
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
+    std::fs::rename(src, dst).map_err(|e| format!("{from} → {to}: {e}"))
 }
 
 fn write_error(e: &std::io::Error) -> String {
@@ -570,6 +612,65 @@ fn attach_to(s: &mut Session, lib: &Path, id: MarkerId, files: &[String], staged
     }))
 }
 
+/// `map.moveAttachment {marker, attachment, to: markerId | {lat, lon}}`: one attachment to another
+/// marker, or to a new marker at a point. The library's copy is moved into the new marker's folder
+/// (`Attachments/<to>/`, a taken name gets `-1`, `-2`…; nothing is overwritten); one undo step,
+/// which moves the file back (redo moves it again). When the file can't be moved, nothing changes.
+fn move_attachment(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "map.moveAttachment";
+    let from_id = marker_id(p, "marker", C)?;
+    let mut from = marker_of(s, from_id, C)?;
+    let aid = match p.get("attachment") {
+        Some(v) => v.as_u64().ok_or_else(|| bad(C, "`attachment` must be an attachment id (a whole number)"))?,
+        None => return Err(bad(C, "missing `attachment` (an attachment id)")),
+    };
+    let a = from.attachment(aid).cloned().ok_or_else(|| bad(C, format!("marker {} has no attachment {aid}", from_id.0)))?;
+    // where to: a marker, or a point for a new one
+    let (mut target, created) = match p.get("to") {
+        Some(to @ Value::Object(_)) => {
+            let Some((lat, lon)) = lat_lon(to, C, true)? else { return Err(bad(C, "`to` needs `lat` and `lon`")) };
+            library_dir(s, C)?;
+            let id = s.catalog.alloc_marker_id();
+            (Marker::new(id, lat, lon, &(s.clock)()), true)
+        }
+        Some(Value::Null) | None => return Err(bad(C, "missing `to` (a marker id, or {lat, lon} for a new marker there)")),
+        Some(v) => {
+            let id = v.as_u64().map(MarkerId).ok_or_else(|| bad(C, "`to` must be a marker id or {lat, lon}"))?;
+            if id == from_id {
+                return Err(bad(C, format!("the attachment is already on marker {}", id.0)));
+            }
+            (marker_of(s, id, C)?, false)
+        }
+    };
+    if target.attachments.len() >= lightcraft_catalog::markers::MAX_ATTACHMENTS {
+        return Err(bad(C, "that marker holds as many attachments as it can"));
+    }
+    let lib = library_dir(s, C)?;
+    if !safe_relative(&a.path) {
+        return Err(bad(C, format!("{} isn't in the library's attachments folder", a.file_name)));
+    }
+    let src = absolute(&lib, &a.path);
+    let name = a.path.rsplit('/').next().map(clean_name).unwrap_or_else(|| clean_name(&a.file_name));
+    let (got, dest) = move_into(&src, &marker_dir(&lib, target.id), &name).map_err(|e| bad(C, format!("{}: {e}", a.file_name)))?;
+    let now = (s.clock)();
+    let moved = Attachment { id: target.next_attachment_id(), path: format!("{FOLDER}/{}/{got}", target.id.0), ..a.clone() };
+    target.attachments.push(moved.clone());
+    target.modified = now.clone();
+    from.attachments.retain(|x| x.id != aid);
+    from.modified = now;
+    let to_id = target.id;
+    let ops = vec![Op::SetMarker { id: to_id, marker: Some(Box::new(target)) }, Op::SetMarker { id: from_id, marker: Some(Box::new(from)) }];
+    // the undo step moves the file back (current place → old place)
+    let (dest, src) = (dest.to_string_lossy().into_owned(), src.to_string_lossy().into_owned());
+    let undo = crate::FolderMove { from: dest.clone(), to: src.clone(), file: true };
+    if let Err(e) = s.commit_with_folder("Move Attachment", Op::Batch { ops }, undo) {
+        let back = move_file_back(&dest, &src).err().map(|b| format!("; moving it back failed too: {b}")).unwrap_or_default();
+        return Err(EngineError::Other(format!("{C}: {e}{back}")));
+    }
+    let card = s.catalog.marker(to_id).map(|m| marker_json(s, m)).unwrap_or(Value::Null);
+    Ok(json!({"marker": to_id.0, "attachment": moved.id, "path": moved.path, "created": created, "from": from_id.0, "card": card}))
+}
+
 fn list(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "map.markers";
     let only = match p.get("id") {
@@ -648,6 +749,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{marker, attachment} | {marker, photo} → {detached, marker} — the record only: the copy stays in the library (undo finds it), a photo stays in the library",
             always,
             detach
+        ),
+        cmd!(
+            "map.moveAttachment",
+            "Move Attachment",
+            [],
+            None,
+            "{marker, attachment, to: markerId | {lat, lon} (a new marker there)} → {marker, attachment, path, created, from, card} — the library's copy moves into Attachments/<marker>/ (a taken name gets -1, -2…; never overwritten); one undo step, which moves the file back (redo moves it again)",
+            always,
+            move_attachment
         ),
         cmd!(query "map.markers", "Map Markers", [], None, "{id?} → {markers: [{id, lat, lon, title, note, created, modified, attachments: [{id, fileName, path, size, kind, added, exists, file}], photos}]}", always, list),
         cmd!(

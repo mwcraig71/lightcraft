@@ -42,6 +42,7 @@ mod print;
 mod query;
 pub mod recheck;
 pub mod reload;
+pub mod relocate;
 mod slideshow;
 mod sync;
 mod xmp;
@@ -176,6 +177,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(geocode::specs());
         v.extend(locations::specs());
         v.extend(markers::specs());
+        v.extend(relocate::specs());
         v.extend(orthomosaic::specs());
         v.extend(filters::specs());
         v.extend(denoise::specs());
