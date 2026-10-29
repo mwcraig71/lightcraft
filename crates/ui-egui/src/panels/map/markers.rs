@@ -8,7 +8,9 @@
 //!   it). Files dropped on the map attach to the marker whose card is open, else at the point
 //!   under the pointer (a new marker there; the map's centre when the pointer isn't on the map).
 //! - A click on a marker opens its card: title and note, the attachments (Open, Show in Folder,
-//!   Remove), Attach Files…, Photos here (narrows the filmstrip), Delete Marker.
+//!   Remove, Move To…), Attach Files…, Photos here (narrows the filmstrip), Delete Marker.
+//! - The right-click menu also offers Move… for the marker, pin, cluster or site under it (the
+//!   placing mode is `moving`).
 //!
 //! The UI-side commands are `map.openMarker`, `map.attachFiles` (file dialog; big documents are
 //! copied on a worker under an activity row), `map.openAttachment` and `map.revealAttachment`.
@@ -53,6 +55,8 @@ pub struct MarkerUi {
     /// Where the context menu was opened (lat, lon), and the marker under it.
     pub menu_at: Option<(f64, f64)>,
     pub menu_marker: Option<u64>,
+    /// The photos of the pin, cluster or site under it (Move…).
+    pub menu_photos: Vec<u64>,
     /// The map as last drawn (drops are placed on it).
     pub viewport: Option<Viewport>,
     /// Copies running on workers.
@@ -104,6 +108,11 @@ fn radius(vp: &Viewport) -> f32 {
 fn hit(vp: &Viewport, markers: &[Shown], p: Pos2) -> Option<u64> {
     let r = radius(vp) + 4.0;
     markers.iter().map(|m| (m.id, vp.screen_of(m.world).distance(p))).filter(|(_, d)| *d <= r).min_by(|a, b| a.1.total_cmp(&b.1)).map(|(id, _)| id)
+}
+
+/// The marker under the screen point `p` on the map `vp`.
+pub(super) fn marker_at(app: &LightcraftApp, vp: &Viewport, p: Pos2) -> Option<u64> {
+    hit(vp, &shown(app), p)
 }
 
 /// The diamond with its badge.
@@ -160,6 +169,10 @@ pub fn layer(app: &mut LightcraftApp, ui: &mut egui::Ui, vp: &Viewport, resp: &e
         crate::widgets::register_geometry(ui.ctx(), format!("mapMarker:{}", m.id), Rect::from_center_size(at, vec2(2.0 * r, 2.0 * r)));
     }
     app.ui.map.markers.viewport = Some(*vp);
+    // while something is being placed the clicks are the placing mode's (`moving`)
+    if super::moving::active(app) {
+        return false;
+    }
     let pointer = resp.hover_pos();
     let under = pointer.and_then(|p| hit(vp, &markers, p));
     if resp.clicked() {
@@ -215,6 +228,24 @@ fn context_menu(app: &mut LightcraftApp, resp: &egui::Response) {
             return;
         };
         let on = app.ui.map.markers.menu_marker;
+        // Move…: the marker under the pointer, else the photos of the pin, cluster or site
+        let photos = if on.is_none() { move_targets(app) } else { None };
+        let mv = match (on, &photos) {
+            (Some(id), _) => Some((tr("Move Marker…").to_string(), json!({"marker": id}))),
+            (None, Some((label, ids))) => Some((label.clone(), json!({"photos": ids}))),
+            (None, None) => None,
+        };
+        if let Some((label, params)) = mv {
+            let b = ui.button(label);
+            crate::widgets::register_response(if on.is_some() { "mapMenu:moveMarker" } else { "mapMenu:movePhotos" }, b.rect, &b);
+            if b.clicked() {
+                if let Err(e) = app.run("map.beginMove", params) {
+                    toast(app, e);
+                }
+                ui.close();
+            }
+            ui.separator();
+        }
         if on.is_none() {
             let b = ui.button(tr("Add Marker Here"));
             crate::widgets::register_response("mapMenu:addMarker", b.rect, &b);
@@ -250,6 +281,19 @@ fn context_menu(app: &mut LightcraftApp, resp: &egui::Response) {
             }
         }
     });
+}
+
+/// What the right-click's Move… takes: a pin of one of several selected photos moves the
+/// selection ("Move 3 Selected Photos…"); otherwise the pin's photo or the cluster's or site's.
+fn move_targets(app: &LightcraftApp) -> Option<(String, Vec<u64>)> {
+    let under = &app.ui.map.markers.menu_photos;
+    let selected: Vec<u64> = app.session.selection.ids.iter().map(|i| i.0).collect();
+    match under.as_slice() {
+        [] => None,
+        [one] if selected.len() > 1 && selected.contains(one) => Some((tr_format!("Move {n} Selected Photos…", n = selected.len()), selected)),
+        [one] => Some((tr("Move Photo…").to_string(), vec![*one])),
+        many => Some((tr_format!("Move {n} Photos…", n = many.len()), many.to_vec())),
+    }
 }
 
 fn toast(app: &mut LightcraftApp, text: impl Into<String>) {
@@ -436,14 +480,16 @@ fn attachment_row(app: &mut LightcraftApp, ui: &mut egui::Ui, marker: u64, a: &V
     let kind = a["kind"].as_str().unwrap_or("other");
     let name = a["fileName"].as_str().unwrap_or_default();
     let missing = a["exists"] == false;
+    // the name takes what the four buttons leave
+    let name_w = (ui.available_width() - 34.0 - 262.0).clamp(60.0, 150.0);
     let row = ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(34.0, 18.0), egui::Sense::hover());
         ui.painter().rect_filled(r, 3.0, kind_color(kind));
         ui.painter().text(r.center(), Align2::CENTER_CENTER, kind_label(kind), t.semibold(9.5), Color32::WHITE);
         ui.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let galley = crate::widgets::one_line(ui.painter(), name, t.font(11.5), t.text, 150.0);
-            let (nr, _) = ui.allocate_exact_size(vec2(150.0, galley.size().y), egui::Sense::hover());
+            let galley = crate::widgets::one_line(ui.painter(), name, t.font(11.5), t.text, name_w);
+            let (nr, _) = ui.allocate_exact_size(vec2(name_w, galley.size().y), egui::Sense::hover());
             ui.painter().galley(nr.min, galley, t.text);
             let size = size_text(a["size"].as_u64().unwrap_or(0));
             let sub = if missing { tr_format!("{size} · missing", size = size) } else { size };
@@ -465,6 +511,13 @@ fn attachment_row(app: &mut LightcraftApp, ui: &mut egui::Ui, marker: u64, a: &V
             }
             if text_button(ui, &format!("markerOpen-{aid}"), "Open", false).on_hover_text(tr("Open the library's copy in its default app")).clicked()
                 && let Err(e) = app.run("map.openAttachment", json!({"marker": marker, "attachment": aid}))
+            {
+                toast(app, e);
+            }
+            if text_button(ui, &format!("markerMove-{aid}"), "Move To…", false)
+                .on_hover_text(tr("Move it to another marker, or to a new marker at a point you click"))
+                .clicked()
+                && let Err(e) = app.run("map.beginMove", json!({"attachment": {"marker": marker, "attachment": aid}}))
             {
                 toast(app, e);
             }

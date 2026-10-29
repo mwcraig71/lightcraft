@@ -378,6 +378,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "view.back" => {
             if app.ui.dialog.is_some() {
                 app.ui.dialog = None;
+            } else if app.ui.view == ViewMode::Map && crate::panels::map::cancel_move(app) {
+                // Esc leaves the Map view's placing mode (nothing moves)
             } else if app.ui.lights_out != crate::state::LightsOut::On {
                 app.ui.lights_out = crate::state::LightsOut::On;
             } else if app.ui.keyword_painter.is_some() {

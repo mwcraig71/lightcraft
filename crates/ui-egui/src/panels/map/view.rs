@@ -167,10 +167,21 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         }
     }
 
+    // the photos under a right-click, for its Move… (the menu is the markers layer's)
+    if resp.secondary_clicked() {
+        let hit = resp.hover_pos().and_then(|p| widget::hit(&vp, &clusters, p)).and_then(|i| clusters.get(i));
+        app.ui.map.markers.menu_photos =
+            hit.map(|c| c.members.iter().filter_map(|i| pins.pins.get(*i)).map(|p| p.id.0).collect()).unwrap_or_default();
+    }
     // the user's markers, above the pins: a marker under the pointer takes its clicks
     let on_marker = super::markers::layer(app, ui, &vp, &resp);
+    // placing something moved (right-click ▸ Move…): the clicks are the placing mode's
+    let placing = super::moving::active(app);
+    if placing {
+        super::moving::frame(app, ui, &vp, &resp);
+    }
     let pointer = resp.hover_pos();
-    let under = if on_marker { None } else { pointer.and_then(|p| widget::hit(&vp, &clusters, p)) };
+    let under = if on_marker || placing { None } else { pointer.and_then(|p| widget::hit(&vp, &clusters, p)) };
     if resp.clicked()
         && let Some(i) = under
         && let Some(c) = clusters.get(i)
@@ -201,6 +212,7 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         custom_not_set_up(ui, rect, &e);
     }
     super::markers::card(app, ui, rect);
+    super::moving::banner(app, ui, rect);
     super::ortho::layers(app, ui, &mut vp);
     if tiles == MapTiles::Ask {
         ask(app, ui, rect);

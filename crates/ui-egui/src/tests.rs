@@ -47,6 +47,7 @@ mod lightroom_destination;
 mod lights_out;
 mod map;
 mod map_markers;
+mod map_moving;
 mod map_ortho;
 mod map_photo;
 mod mask_effects;

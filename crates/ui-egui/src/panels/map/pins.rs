@@ -36,7 +36,8 @@ pub struct Pins {
     pub total: usize,
     /// Photos in the list without a location.
     pub without: Vec<PhotoId>,
-    /// Changes when the set of pins or their places change (a new folder or filter fits again).
+    /// Changes when the set of photos with a pin changes (a new folder or filter fits again; a
+    /// photo moved on the map, or its move undone, doesn't).
     pub key: u64,
 }
 
@@ -72,11 +73,9 @@ pub fn collect(app: &mut LightcraftApp) -> Pins {
     }
     pins.sort_by(|a, b| a.captured.cmp(&b.captured).then_with(|| a.file_name.cmp(&b.file_name)).then(a.id.0.cmp(&b.id.0)));
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    for p in &pins {
-        p.id.0.hash(&mut h);
-        p.world.0.to_bits().hash(&mut h);
-        p.world.1.to_bits().hash(&mut h);
-    }
+    let mut pinned: Vec<u64> = pins.iter().map(|p| p.id.0).collect();
+    pinned.sort_unstable();
+    pinned.hash(&mut h);
     Pins { pins, total: ids.len(), without, key: h.finish() }
 }
 

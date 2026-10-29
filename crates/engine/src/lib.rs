@@ -168,16 +168,24 @@ fn single_photo(op: &Op, depth: usize) -> Option<PhotoId> {
     }
 }
 
-/// A folder renamed or moved on disk as part of an undo step.
+/// A folder renamed or moved on disk as part of an undo step; with `file`, one file (an attachment
+/// moved to another marker, `map.moveAttachment`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderMove {
     pub from: String,
     pub to: String,
+    /// `from` and `to` are a file's paths, not a folder's.
+    pub file: bool,
 }
 
 impl FolderMove {
     fn reversed(&self) -> Self {
-        Self { from: self.to.clone(), to: self.from.clone() }
+        Self { from: self.to.clone(), to: self.from.clone(), file: self.file }
+    }
+
+    /// Do the move on disk (never overwriting).
+    fn on_disk(&self) -> std::result::Result<(), String> {
+        if self.file { cmd::markers::move_file_back(&self.from, &self.to) } else { cmd::browse::folder_on_disk(&self.from, &self.to) }
     }
 }
 
@@ -855,11 +863,12 @@ impl Session {
         let op = &entry.op;
         let folder = entry.folder.as_ref();
         if let Some(f) = folder {
-            cmd::browse::folder_on_disk(&f.from, &f.to).map_err(|e| EngineError::Other(format!("can't move the folder back: {e}")))?;
+            let what = if f.file { "file" } else { "folder" };
+            f.on_disk().map_err(|e| EngineError::Other(format!("can't move the {what} back: {e}")))?;
         }
         let undo_folder = || {
             if let Some(f) = folder {
-                let _ = cmd::browse::folder_on_disk(&f.to, &f.from);
+                let _ = f.reversed().on_disk();
             }
         };
         let moves = self.file_moves(op);
@@ -877,7 +886,7 @@ impl Session {
         }
         match self.apply_catalog(op.clone()) {
             Ok(inv) => {
-                if let Some(f) = folder {
+                if let Some(f) = folder.filter(|f| !f.file) {
                     cmd::browse::follow_folder(self, &f.from, &f.to);
                 }
                 if entry.retry_inverse.is_empty() {

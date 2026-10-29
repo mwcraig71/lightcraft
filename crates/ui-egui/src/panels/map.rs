@@ -18,10 +18,12 @@
 //! - `ortho`: drone orthomosaics drawn on the map, the Layers panel.
 //! - `photo`: a photo shown large in the map's place (`map.showPhoto`) beside its inspection log.
 //! - `notes`: the inspection log's list and editor, the pins' log badges.
+//! - `moving`: moving photos, markers and attached files to another place (right-click ▸ Move…).
 
 mod custom;
 mod markers;
 mod mini;
+mod moving;
 mod notes;
 mod ortho;
 mod photo;
@@ -43,6 +45,7 @@ use crate::state::ViewMode;
 pub use custom::{CustomTiles, HIDDEN_KEY, hide_key, keep_hidden_key};
 pub use markers::{MarkerUi, drop_hint, poll as poll_markers, take_drop};
 pub use mini::{MINI_MAP_H, mini_map};
+pub use moving::{MoveUi, cancel as cancel_move};
 pub use notes::{NotesUi, info_section as notes_section};
 pub use photo::{close_photo, film_double_click, photo_mode, step_photo};
 pub use pins::{Pin, cluster};
@@ -89,6 +92,9 @@ pub struct MapState {
     /// The inspection log's editor (not saved).
     #[serde(skip)]
     pub notes: NotesUi,
+    /// Moving photos, a marker or a file: the placing mode and the notice after (not saved).
+    #[serde(skip)]
+    pub moving: MoveUi,
 }
 
 impl Default for MapState {
@@ -104,6 +110,7 @@ impl Default for MapState {
             markers: MarkerUi::default(),
             photo: None,
             notes: NotesUi::default(),
+            moving: MoveUi::default(),
         }
     }
 }
@@ -182,6 +189,9 @@ pub(crate) fn run(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result
         return Some(r);
     }
     if let Some(r) = photo::run(app, id, p) {
+        return Some(r);
+    }
+    if let Some(r) = moving::run(app, id, p) {
         return Some(r);
     }
     Some(match id {
