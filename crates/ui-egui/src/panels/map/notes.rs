@@ -166,21 +166,25 @@ pub fn draw_badges(app: &LightcraftApp, ui: &egui::Ui, vp: &Viewport, pins: &[Pi
             continue;
         }
         let at = vp.screen_of(c.world);
-        let offset = if c.members.len() == 1 { PIN_R + 1.0 } else { 12.0 };
-        let dot = at + vec2(offset * 0.75, -offset * 0.75);
+        let offset = if c.members.len() == 1 { PIN_R + 4.0 } else { 15.0 };
+        let dot = at + vec2(offset * 0.8, -offset * 0.8);
         draw_badge(&painter, dot, worst);
         let key = c.members.first().and_then(|i| pins.get(*i)).map_or(0, |p| p.id.0);
         crate::widgets::register_geometry(
             ui.ctx(),
             format!("mapLog:{key}:{}", worst.map_or("none", Condition::id)),
-            Rect::from_center_size(dot, vec2(8.0, 8.0)),
+            Rect::from_center_size(dot, vec2(13.0, 13.0)),
         );
     }
 }
 
 fn draw_badge(painter: &egui::Painter, at: Pos2, worst: Option<Condition>) {
-    painter.circle_filled(at, 5.0, Color32::from_black_alpha(200));
-    painter.circle_filled(at, 3.6, worst.map_or(Color32::WHITE, condition_color));
+    // a dark edge for the imagery, a white ring that keeps a red dot apart from the red pin
+    painter.circle_filled(at, 6.5, Color32::from_black_alpha(200));
+    painter.circle_filled(at, 5.3, Color32::WHITE);
+    if let Some(c) = worst {
+        painter.circle_filled(at, 4.0, condition_color(c));
+    }
 }
 
 // ---------------------------------------------------------------- the log beside the photo
