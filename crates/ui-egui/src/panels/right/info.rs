@@ -226,6 +226,8 @@ pub(super) fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         {
             let _ = app.run("dialog.allMetadata", json!({}));
         }
+        // the photo's inspection log, compact (the Map view shows it beside the photo)
+        crate::panels::map::notes_section(app, ui, id);
     });
 }
 

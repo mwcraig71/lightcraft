@@ -191,6 +191,10 @@ pub(crate) fn filmstrip_of(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, 
                     app.toast(ui.ctx(), e);
                 }
             }
+            // the Map view: a double-click shows the photo in the map's place (again: the map)
+            if resp.double_clicked() && app.ui.view == crate::state::ViewMode::Map {
+                crate::panels::map::film_double_click(app, *id, ui.input(|i| i.time));
+            }
             // the same photo actions as the grid and loupe (Restore / Delete Permanently in Recently Deleted)
             crate::widgets::context_menu(&resp, |ui| crate::panels::grid::context_menu(app, ui, *id));
         }

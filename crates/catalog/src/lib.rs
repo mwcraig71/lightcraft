@@ -22,6 +22,7 @@ pub mod local;
 pub mod lock;
 pub mod markers;
 pub mod model;
+pub mod notes;
 pub mod query;
 pub mod rules;
 pub mod safe_file;
@@ -41,6 +42,7 @@ pub use local::{DEFAULT_FORGET_DAYS, ForgetPlan, LocalRecords, folder_of};
 pub use lock::{LibraryLock, LockError, LockOwner};
 pub use markers::{Attachment, AttachmentKind, Marker, MarkerId};
 pub use model::*;
+pub use notes::{Condition, Note, NoteKind};
 pub use query::{DateGroup, Filter, Person, RatingOp, Sort, SortKey, mix64};
 pub use rules::{Match, Rule, RuleSet};
 use serde::{Deserialize, Serialize};
@@ -265,6 +267,12 @@ pub enum Op {
         #[serde(default)]
         marker: Option<Box<Marker>>,
     },
+    /// Replace a photo's inspection log (see [`notes`]; empty = no log). Format version 11.
+    SetNotes {
+        id: PhotoId,
+        #[serde(default)]
+        notes: Vec<Note>,
+    },
     /// Several ops as one step (undo applies the inverses in reverse).
     Batch {
         ops: Vec<Op>,
@@ -298,6 +306,9 @@ pub struct Catalog {
     markers: BTreeMap<MarkerId, Marker>,
     #[serde(default, skip_serializing_if = "is_zero")]
     next_marker: u64,
+    /// Each photo's inspection log, by photo (see [`notes`]); a photo without one has no entry.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    notes: BTreeMap<PhotoId, Vec<Note>>,
     /// Increments on every applied op, and when a batch fails and its rollback cannot undo it whole (the catalog
     /// changed, so what is keyed by the revision is out of date).
     #[serde(skip)]
@@ -454,6 +465,14 @@ impl Catalog {
     /// Every map marker, by id.
     pub fn markers(&self) -> impl Iterator<Item = &Marker> {
         self.markers.values()
+    }
+    /// A photo's inspection log, in the order it was written (empty: none).
+    pub fn notes(&self, id: PhotoId) -> &[Note] {
+        self.notes.get(&id).map_or(&[], Vec::as_slice)
+    }
+    /// Every photo with an inspection log, and its log.
+    pub fn all_notes(&self) -> impl Iterator<Item = (PhotoId, &[Note])> {
+        self.notes.iter().map(|(id, n)| (*id, n.as_slice()))
     }
     /// The Quick Collection, once something was added to it.
     pub fn quick_collection(&self) -> Option<AlbumId> {
@@ -725,8 +744,8 @@ impl Catalog {
             | Op::SetBrowsed { .. }
             | Op::SetKeyword { .. }
             | Op::SetFolderRecord { .. } => self.changes.broad = self.revision.saturating_add(1),
-            // (a marker is no photo's: no tally of the photos changes)
-            Op::SetMarker { .. } => {}
+            // (a marker is no photo's, and no tally counts a photo's log: no tally of the photos changes)
+            Op::SetMarker { .. } | Op::SetNotes { .. } => {}
         }
         Ok(match op {
             Op::AddPhoto { photo } => {
@@ -1032,6 +1051,13 @@ impl Catalog {
                 };
                 Op::SetMarker { id, marker: old.map(Box::new) }
             }
+            Op::SetNotes { id, notes } => {
+                if let Some(why) = notes::notes_problem(&notes) {
+                    return Err(CatalogError::Invalid(format!("photo {}: {why}", id.0)));
+                }
+                let old = if notes.is_empty() { self.notes.remove(&id) } else { self.notes.insert(id, notes) };
+                Op::SetNotes { id, notes: old.unwrap_or_default() }
+            }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -1266,6 +1292,8 @@ mod tests_local;
 mod tests_lock;
 #[cfg(test)]
 mod tests_markers;
+#[cfg(test)]
+mod tests_notes;
 #[cfg(test)]
 mod tests_repair;
 #[cfg(test)]

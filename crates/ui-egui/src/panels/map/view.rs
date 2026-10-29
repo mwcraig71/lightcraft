@@ -62,7 +62,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         return;
     }
     register(ui, "map:view", map_rect);
-    map(app, ui, map_rect, &pins);
+    // a photo shown in the map's place (`map.showPhoto`); the map is drawn again as it was after
+    if !super::photo::show(app, ui, map_rect) {
+        map(app, ui, map_rect, &pins);
+    }
 }
 
 fn status_line(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, pins: &Pins) {
@@ -150,6 +153,7 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
     let clusters = pins::layout(&pins.pins, vp.scale(), vp.zoom, CLUSTER_RADIUS, &name);
     let selected: std::collections::HashSet<u64> = app.session.selection.ids.iter().map(|i| i.0).chain(app.session.active().map(|a| a.0)).collect();
     widget::draw_pins(ui, &vp, &pins.pins, &clusters, app.ui.map.track, &|id| selected.contains(&id));
+    super::notes::draw_badges(app, ui, &vp, &pins.pins, &clusters);
     for c in &clusters {
         let at = vp.screen_of(c.world);
         if let Some(name) = &c.site {
@@ -179,8 +183,8 @@ fn map(app: &mut LightcraftApp, ui: &mut egui::Ui, rect: Rect, pins: &Pins) {
         && let [only] = c.members.as_slice()
         && let Some(p) = pins.pins.get(*only)
     {
-        let _ = app.run("library.select", json!({"ids": [p.id.0]}));
-        let _ = app.run("view.detail", json!({}));
+        // the photo in the map's place, beside its inspection log
+        let _ = app.run("map.showPhoto", json!({"id": p.id.0}));
     }
     if under.is_some() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -387,10 +391,16 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
     let img_h = 132.0;
     let single = c.members.len() == 1 && c.site.is_none();
     let heading = single.then(|| facts(first)).flatten();
+    // the newest inspection log entry
+    let log = single
+        .then(|| super::notes::latest_line(app, first.id))
+        .flatten()
+        .map(|l| crate::widgets::one_line(&painter, &l, t.font(11.0), t.text_label, 300.0));
     // wide enough for the longest line (heading, altitude and accuracy), never narrower than 200
     let widest = heading.as_ref().map_or(0.0, |h| painter.layout_no_wrap(h.clone(), t.font(11.0), t.text_dim).size().x);
+    let widest = widest.max(log.as_ref().map_or(0.0, |g| g.size().x));
     let card_w = (widest + 16.0).clamp(200.0, 320.0);
-    let size = vec2(card_w, img_h + if heading.is_some() { 62.0 } else { 46.0 });
+    let size = vec2(card_w, img_h + if heading.is_some() { 62.0 } else { 46.0 } + if log.is_some() { 16.0 } else { 0.0 });
     let screen = ui.ctx().content_rect();
     let mut min = at + vec2(16.0, 16.0);
     if min.x + size.x > screen.right() {
@@ -424,8 +434,13 @@ fn hover_card(app: &mut LightcraftApp, ui: &egui::Ui, pins: &Pins, c: &Cluster, 
         _ => first.captured.replacen('T', " ", 1),
     };
     painter.text(pos2(card.left() + 8.0, img.bottom() + 25.0), Align2::LEFT_TOP, when, t.font(11.0), t.text_dim);
+    let mut y = img.bottom() + 41.0;
     if let Some(line) = heading {
-        painter.text(pos2(card.left() + 8.0, img.bottom() + 41.0), Align2::LEFT_TOP, line, t.font(11.0), t.text_dim);
+        painter.text(pos2(card.left() + 8.0, y), Align2::LEFT_TOP, line, t.font(11.0), t.text_dim);
+        y += 16.0;
+    }
+    if let Some(g) = log {
+        painter.galley(pos2(card.left() + 8.0, y), g, t.text_label);
     }
     crate::widgets::register_geometry(ui.ctx(), "map:hover", card);
 }

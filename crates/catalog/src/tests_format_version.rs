@@ -237,10 +237,11 @@ fn op_variants_are_versioned() {
             Op::SetAsShotWb { .. } => 7,
             Op::SetHistoryCursor { .. } => 8,
             Op::SetMarker { .. } => 10,
+            Op::SetNotes { .. } => 11,
         }
     }
     /// v9: `Photo.preview_checked` and `Op::SetContent.preview_checked`.
     const NEWEST_FIELDS: u32 = 9;
-    let newest = since(&Op::SetMarker { id: MarkerId(1), marker: None });
+    let newest = since(&Op::SetNotes { id: PhotoId(1), notes: Vec::new() });
     assert_eq!(newest.max(NEWEST_FIELDS), VERSION, "the newest op's or fields' version must be the current format version");
 }

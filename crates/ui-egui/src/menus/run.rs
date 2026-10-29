@@ -388,6 +388,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 crate::panels::slideshow::end(app);
             } else if !app.ui.tool.is_empty() {
                 app.ui.tool.clear();
+            } else if crate::panels::map::photo_mode(app) {
+                // the photo shown in the Map view's place: the map again, as it was
+                crate::panels::map::close_photo(app);
             } else if app.ui.right == RightPanel::Crop && app.ui.view == ViewMode::Detail {
                 // Esc leaves the crop tool (the crop stays), as C does; the next Esc goes back
                 panel(app, &ctx, RightPanel::Crop, "Crop, Rotate, Geometry");

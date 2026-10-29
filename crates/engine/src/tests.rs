@@ -35,6 +35,7 @@ mod markers;
 mod mask_effects;
 mod merge;
 mod move_to_share;
+mod notes;
 mod organize;
 mod persist;
 mod prefs;

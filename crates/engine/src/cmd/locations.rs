@@ -70,6 +70,11 @@ pub struct Point {
     pub magnetic: bool,
     /// How far off the position may be (metres; `GPSHPositioningError`).
     pub accuracy: Option<f64>,
+    /// The photo's inspection log, newest first (see [`super::notes::note_json`]), its worst
+    /// current condition, and its plain-text summary (the KML `description`).
+    pub notes: Vec<Value>,
+    pub condition: Option<&'static str>,
+    pub notes_summary: String,
 }
 
 /// Rounded to `places` decimals (headings are f32 in the catalog: 87.3 not 87.30000305).
@@ -100,7 +105,19 @@ impl Point {
             heading: p.meta.gps_direction.map(f64::from).filter(|d| d.is_finite()).map(|d| round(d, 2)),
             magnetic: p.meta.gps_direction_magnetic && p.meta.gps_direction.is_some(),
             accuracy: p.meta.gps_accuracy.filter(|m| m.is_finite() && *m > 0.0).map(|m| round(m, 2)),
+            notes: Vec::new(),
+            condition: None,
+            notes_summary: String::new(),
         })
+    }
+
+    /// With the photo's inspection log `log`.
+    pub fn with_notes(mut self, log: &[lightcraft_catalog::Note]) -> Point {
+        use lightcraft_catalog::notes;
+        self.notes = notes::newest_first(log).into_iter().map(super::notes::note_json).collect();
+        self.condition = notes::worst_condition(log).map(lightcraft_catalog::Condition::id);
+        self.notes_summary = notes::summary(log);
+        self
     }
 
     /// The point's properties, in order, for both formats (GeoJSON `properties`, KML
@@ -125,6 +142,12 @@ impl Point {
         if let Some(p) = &self.path {
             v.push(("path", json!(p)));
         }
+        if let Some(c) = self.condition {
+            v.push(("condition", json!(c)));
+        }
+        if !self.notes.is_empty() {
+            v.push(("notes", json!(self.notes)));
+        }
         v
     }
 }
@@ -135,7 +158,7 @@ pub fn points(s: &Session, ids: &[PhotoId]) -> (Vec<Point>, usize) {
     let mut skipped = 0;
     for id in ids {
         match s.catalog.photo(*id).and_then(|p| Point::of(p)) {
-            Some(p) => out.push(p),
+            Some(p) => out.push(p.with_notes(s.catalog.notes(*id))),
             None => skipped += 1,
         }
     }
@@ -245,6 +268,9 @@ pub fn to_kml(pts: &[Point], markers: &[MarkerPoint], title: &str, track: bool) 
     for p in pts {
         k.push_str("    <Placemark>\n");
         k.push_str(&format!("      <name>{}</name>\n", xml_escape(&p.name)));
+        if !p.notes_summary.is_empty() {
+            k.push_str(&format!("      <description>{}</description>\n", xml_escape(&p.notes_summary)));
+        }
         if let Some(c) = &p.captured {
             k.push_str(&format!("      <TimeStamp><when>{}</when></TimeStamp>\n", xml_escape(c)));
         }
@@ -253,6 +279,8 @@ pub fn to_kml(pts: &[Point], markers: &[MarkerPoint], title: &str, track: bool) 
             if name == "name" {
                 continue;
             }
+            // the log as text, one entry a line (the GeoJSON keeps each entry's fields)
+            let value = if name == "notes" { json!(p.notes_summary) } else { value };
             k.push_str(&format!("        <Data name=\"{name}\"><value>{}</value></Data>\n", xml_escape(&kml_text(value))));
         }
         k.push_str("      </ExtendedData>\n");
@@ -389,7 +417,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Export Photo Locations",
         [],
         None,
-        "{path?: .kml | .geojson file (none: the text is returned), format?: kml | geojson (default: from the path's extension), ids? (default: the selection when several photos are selected, else the photos shown), track?: bool (true: a line through the points in capture order, `kind: track`), markers?: bool (true: the Map view's markers too, `kind: marker`, with title, note, attachment file names and photo ids), name?: the document's name} → {written, markers, skipped: photos without a usable location, format, track, path | text} — one point per photo in capture order: name (title, else file name), capture time, lat/lon, altitude, heading (and whether magnetic), accuracy (metres), file path",
+        "{path?: .kml | .geojson file (none: the text is returned), format?: kml | geojson (default: from the path's extension), ids? (default: the selection when several photos are selected, else the photos shown), track?: bool (true: a line through the points in capture order, `kind: track`), the photos' inspection logs (GeoJSON `notes`: [{id, kind, element, condition, text, date, created, modified}] and `condition`; KML `description` and ExtendedData `notes`: one entry a line), markers?: bool (true: the Map view's markers too, `kind: marker`, with title, note, attachment file names and photo ids), name?: the document's name} → {written, markers, skipped: photos without a usable location, format, track, path | text} — one point per photo in capture order: name (title, else file name), capture time, lat/lon, altitude, heading (and whether magnetic), accuracy (metres), file path",
         always,
         export_locations
     )]

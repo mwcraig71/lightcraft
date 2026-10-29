@@ -74,6 +74,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.map", "Map", None, "View"),
     ("map.fitAll", "Fit All Photos on the Map", None, ""),
     ("map.focus", "Show Only These Photos in the Map Filmstrip", None, ""),
+    // {id | null}: the photo in the Map view's place beside its inspection log (null: the map again)
+    ("map.showPhoto", "Show Photo on the Map", None, ""),
     ("map.toggleTrack", "Map Track Line", None, ""),
     ("map.setTileSource", "Map Tiles", None, ""),
     ("map.setCustomSource", "Custom Map Tile Source", None, ""),
